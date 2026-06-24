@@ -1,0 +1,22 @@
+.build/
+.swiftpm/
+DerivedData/
+.DS_Store
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.dSYM/
+*.log
+*.old.log
+*.zip
+*.tar.gz
+CodexTokenMenuBar.app/
+
+# Local runtime state
+api-key.vault.json
+stats.json
+settings.json
+token-report.md
+token-report.json
+.env
+.env.*
