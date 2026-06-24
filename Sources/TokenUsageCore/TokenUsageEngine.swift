@@ -134,6 +134,21 @@ public final class TokenUsageEngine: @unchecked Sendable {
         - Last 10 prompts average: \(Formatters.decimal(stats.last10PromptsAverage))
         - Peak prompt cost: \(stats.peakPromptCost)
 
+        ## Usage Log
+
+        - Today: \(stats.todayUsage.totalTokens) tokens, \(stats.todayUsage.requests) requests
+        - Yesterday: \(stats.yesterdayUsage.totalTokens) tokens, \(stats.yesterdayUsage.requests) requests
+        - This week: \(stats.currentWeekUsage.totalTokens) tokens, \(stats.currentWeekUsage.requests) requests
+        - This month: \(stats.currentMonthUsage.totalTokens) tokens, \(stats.currentMonthUsage.requests) requests
+
+        ## Daily History
+
+        \(stats.recentDailyUsage.isEmpty ? "- No daily history yet" : stats.recentDailyUsage.map { "- \($0.label): \($0.totalTokens) tokens, \($0.requests) requests" }.joined(separator: "\n"))
+
+        ## Codex Projects Today
+
+        \(stats.todayProjectBreakdown.isEmpty ? "- No project metadata yet" : stats.todayProjectBreakdown.map { "- \($0.label): \($0.totalTokens) tokens, \($0.requests) requests" }.joined(separator: "\n"))
+
         ## Totals
 
         - Total prompts: \(stats.totalPrompts)

@@ -55,8 +55,25 @@ public final class TokenUsageStore: @unchecked Sendable {
 
     @discardableResult
     public func add(_ samples: [TokenUsageSample]) throws -> Int {
+        var enrichedExistingSamples = false
+        for sample in samples where state.seenSampleIDs.contains(sample.id) {
+            guard sample.projectID != nil || sample.projectName != nil else { continue }
+            guard let index = state.samples.firstIndex(where: { $0.id == sample.id }) else { continue }
+
+            let existing = state.samples[index]
+            let shouldEnrichProjectID = existing.projectID == nil && sample.projectID != nil
+            let shouldEnrichProjectName = existing.projectName == nil && sample.projectName != nil
+            guard shouldEnrichProjectID || shouldEnrichProjectName else { continue }
+
+            state.samples[index] = existing.withProject(
+                projectID: sample.projectID,
+                projectName: sample.projectName
+            )
+            enrichedExistingSamples = true
+        }
+
         let newSamples = samples.filter { !state.seenSampleIDs.contains($0.id) }
-        guard !newSamples.isEmpty else { return 0 }
+        guard !newSamples.isEmpty || enrichedExistingSamples else { return 0 }
 
         for sample in newSamples {
             state.samples.append(sample)
@@ -91,9 +108,26 @@ public final class TokenUsageStore: @unchecked Sendable {
         try save()
     }
 
-    public func statistics(activeSourcePath: String?, issues: [TokenMonitorIssue]) -> TokenUsageStatistics {
+    public func statistics(
+        activeSourcePath: String?,
+        issues: [TokenMonitorIssue],
+        now: Date = Date()
+    ) -> TokenUsageStatistics {
         let allSamples = state.samples
         let sessionSamples = sessionSamples(from: allSamples, activeSourcePath: activeSourcePath)
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: now)
+        let yesterdayStart = calendar.date(byAdding: .day, value: -1, to: todayStart) ?? todayStart
+        let tomorrowStart = calendar.date(byAdding: .day, value: 1, to: todayStart) ?? now
+        let weekInterval = calendar.dateInterval(of: .weekOfYear, for: now)
+            ?? DateInterval(start: todayStart, end: tomorrowStart)
+        let monthInterval = calendar.dateInterval(of: .month, for: now)
+            ?? DateInterval(start: todayStart, end: tomorrowStart)
+
+        let todaySamples = samples(allSamples, in: DateInterval(start: todayStart, end: tomorrowStart))
+        let yesterdaySamples = samples(allSamples, in: DateInterval(start: yesterdayStart, end: todayStart))
+        let weekSamples = samples(allSamples, in: weekInterval)
+        let monthSamples = samples(allSamples, in: monthInterval)
 
         var totalTokens = 0
         for sample in allSamples {
@@ -153,8 +187,14 @@ public final class TokenUsageStore: @unchecked Sendable {
             budgetUsedRatio: nil,
             dataSource: "Codex local session logs",
             modelBreakdown: [],
-            projectBreakdown: [],
-            apiKeyBreakdown: []
+            projectBreakdown: projectBreakdown(from: monthSamples),
+            apiKeyBreakdown: [],
+            todayUsage: periodSummary(label: "Today", samples: todaySamples),
+            yesterdayUsage: periodSummary(label: "Yesterday", samples: yesterdaySamples),
+            currentWeekUsage: periodSummary(label: "This week", samples: weekSamples),
+            currentMonthUsage: periodSummary(label: "This month", samples: monthSamples),
+            recentDailyUsage: recentDailyUsage(from: allSamples, calendar: calendar, todayStart: todayStart),
+            todayProjectBreakdown: projectBreakdown(from: todaySamples)
         )
     }
 
@@ -201,5 +241,86 @@ public final class TokenUsageStore: @unchecked Sendable {
         }
 
         return activeSourceSamples.isEmpty ? timeScopedSamples : activeSourceSamples
+    }
+
+    private func samples(_ samples: [TokenUsageSample], in interval: DateInterval) -> [TokenUsageSample] {
+        samples.filter { interval.contains($0.timestamp) }
+    }
+
+    private func periodSummary(label: String, samples: [TokenUsageSample]) -> UsagePeriodSummary {
+        var input = 0
+        var output = 0
+        var total = 0
+        for sample in samples {
+            input += sample.inputTokens
+            output += sample.outputTokens
+            total += sample.totalTokens
+        }
+        return UsagePeriodSummary(
+            label: label,
+            inputTokens: input,
+            outputTokens: output,
+            totalTokens: total,
+            requests: samples.count
+        )
+    }
+
+    private func recentDailyUsage(
+        from allSamples: [TokenUsageSample],
+        calendar: Calendar,
+        todayStart: Date
+    ) -> [UsagePeriodSummary] {
+        var summaries: [UsagePeriodSummary] = []
+        summaries.reserveCapacity(14)
+
+        for offset in stride(from: 13, through: 0, by: -1) {
+            guard let dayStart = calendar.date(byAdding: .day, value: -offset, to: todayStart),
+                  let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) else {
+                continue
+            }
+            let label: String
+            if offset == 0 {
+                label = "Today"
+            } else if offset == 1 {
+                label = "Yesterday"
+            } else {
+                label = Self.dayLabel(for: dayStart)
+            }
+            summaries.append(
+                periodSummary(
+                    label: label,
+                    samples: samples(allSamples, in: DateInterval(start: dayStart, end: dayEnd))
+                )
+            )
+        }
+
+        return summaries
+    }
+
+    private func projectBreakdown(from samples: [TokenUsageSample]) -> [UsageBreakdown] {
+        var breakdown: [String: UsageBreakdown] = [:]
+        for sample in samples {
+            let key = sample.projectID ?? "unknown"
+            let label = sample.projectName ?? "Unknown Project"
+            var item = breakdown[key] ?? UsageBreakdown(label: label)
+            item.inputTokens += sample.inputTokens
+            item.outputTokens += sample.outputTokens
+            item.totalTokens += sample.totalTokens
+            item.requests += 1
+            breakdown[key] = item
+        }
+
+        return breakdown.values.sorted {
+            if $0.totalTokens == $1.totalTokens {
+                return $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending
+            }
+            return $0.totalTokens > $1.totalTokens
+        }
+    }
+
+    private static func dayLabel(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter.string(from: date)
     }
 }

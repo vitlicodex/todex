@@ -102,6 +102,8 @@ public struct TokenUsageSample: Codable, Equatable, Sendable {
     public let mode: UsageMode
     public let sourceID: String
     public let sourcePath: String
+    public let projectID: String?
+    public let projectName: String?
 
     public init(
         id: String,
@@ -111,7 +113,9 @@ public struct TokenUsageSample: Codable, Equatable, Sendable {
         totalTokens: Int,
         mode: UsageMode,
         sourceID: String,
-        sourcePath: String
+        sourcePath: String,
+        projectID: String? = nil,
+        projectName: String? = nil
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -121,6 +125,45 @@ public struct TokenUsageSample: Codable, Equatable, Sendable {
         self.mode = mode
         self.sourceID = sourceID
         self.sourcePath = sourcePath
+        self.projectID = projectID
+        self.projectName = projectName
+    }
+
+    public func withProject(projectID: String?, projectName: String?) -> TokenUsageSample {
+        TokenUsageSample(
+            id: id,
+            timestamp: timestamp,
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
+            totalTokens: totalTokens,
+            mode: mode,
+            sourceID: sourceID,
+            sourcePath: sourcePath,
+            projectID: projectID ?? self.projectID,
+            projectName: projectName ?? self.projectName
+        )
+    }
+}
+
+public struct UsagePeriodSummary: Codable, Equatable, Sendable {
+    public var label: String
+    public var inputTokens: Int
+    public var outputTokens: Int
+    public var totalTokens: Int
+    public var requests: Int
+
+    public init(
+        label: String,
+        inputTokens: Int = 0,
+        outputTokens: Int = 0,
+        totalTokens: Int = 0,
+        requests: Int = 0
+    ) {
+        self.label = label
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.totalTokens = totalTokens
+        self.requests = requests
     }
 }
 
@@ -149,6 +192,12 @@ public struct TokenUsageStatistics: Codable, Equatable, Sendable {
     public var modelBreakdown: [UsageBreakdown]
     public var projectBreakdown: [UsageBreakdown]
     public var apiKeyBreakdown: [UsageBreakdown]
+    public var todayUsage: UsagePeriodSummary
+    public var yesterdayUsage: UsagePeriodSummary
+    public var currentWeekUsage: UsagePeriodSummary
+    public var currentMonthUsage: UsagePeriodSummary
+    public var recentDailyUsage: [UsagePeriodSummary]
+    public var todayProjectBreakdown: [UsageBreakdown]
 
     public static let empty = TokenUsageStatistics(
         currentSessionPrompts: 0,
@@ -174,7 +223,13 @@ public struct TokenUsageStatistics: Codable, Equatable, Sendable {
         dataSource: nil,
         modelBreakdown: [],
         projectBreakdown: [],
-        apiKeyBreakdown: []
+        apiKeyBreakdown: [],
+        todayUsage: UsagePeriodSummary(label: "Today"),
+        yesterdayUsage: UsagePeriodSummary(label: "Yesterday"),
+        currentWeekUsage: UsagePeriodSummary(label: "This week"),
+        currentMonthUsage: UsagePeriodSummary(label: "This month"),
+        recentDailyUsage: [],
+        todayProjectBreakdown: []
     )
 }
 

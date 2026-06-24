@@ -15,6 +15,8 @@ Codex Token Menu Bar is built for people who run Codex all day and want a quiet,
 - Encrypted local API key vault with macOS device-owner authentication.
 - Codex permission monitoring with five local policy presets.
 - Safe numeric Markdown and JSON reports.
+- Persistent day, week, and month usage history.
+- Daily Codex project token breakdown without storing full project paths.
 - Apple Silicon native release bundle support.
 - No prompt content storage.
 - No third-party telemetry.
@@ -73,6 +75,7 @@ On Apple Silicon Macs, `Scripts/make-app-bundle.sh` builds a native `arm64` rele
 The dropdown starts with a compact dashboard and groups everything else by workflow:
 
 - **Overview**: refresh, token totals, input/output, averages, costs.
+- **Usage Log**: today, yesterday, week, month, daily history, and Codex projects today.
 - **Reports & Data**: reports, exports, source file, model/project/API key breakdowns.
 - **Codex Permissions**: current permission state and local policy toggles.
 - **API Key & Security**: unlock, lock, set, clear, clipboard session key.
@@ -92,6 +95,21 @@ The primary Codex source is:
 ```
 
 For Codex `token_count` events, the app imports `last_token_usage` as the per-request sample and ignores cumulative `total_token_usage` to avoid double counting.
+
+Daily, weekly, and monthly history is computed from the local persisted sample store:
+
+```text
+~/Library/Application Support/CodexTokenMenuBar/stats.json
+```
+
+The current day's totals are not reset when the app restarts. **Reset Session Statistics** only starts a new session baseline; it does not clear day/month history. **Reset All Statistics** clears persisted history after confirmation.
+
+When Codex `session_meta` or `turn_context` metadata contains a workspace path, the app stores only:
+
+- a stable hash of the normalized path;
+- the last folder name as the project label.
+
+It does not store full Codex project paths in project breakdown rows.
 
 Custom source paths can be provided before launch:
 

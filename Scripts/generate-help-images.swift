@@ -116,13 +116,14 @@ try makeHelpImage(
         MenuRow(title: "Top Dashboard", detail: "tokens, last 10, requests, cost", state: "HIGH"),
         MenuRow(title: "Sections", isHeader: true),
         MenuRow(title: "Overview", detail: "refresh, tokens, requests, averages"),
+        MenuRow(title: "Usage Log", detail: "today, week, month, daily history"),
         MenuRow(title: "Reports & Data", detail: "safe report, export, raw source warning"),
         MenuRow(title: "Codex Permissions", detail: "approval, sandbox, filesystem, network"),
         MenuRow(title: "API Key & Security", detail: "unlock, lock, clear, clipboard"),
         MenuRow(title: "App Settings", detail: "launch at login"),
         MenuRow(title: "Advanced", detail: "feature switches, reset, diagnostics")
     ],
-    footer: "The first level stays short; detailed numbers live inside Overview and Reports."
+    footer: "The first level stays short; detailed numbers live inside Overview, Usage Log, and Reports."
 )
 
 try makeHelpImage(

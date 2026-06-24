@@ -12,6 +12,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Always-visible short `TOK` menu bar title.
 - Launch control window with an Open Menu fallback for crowded menu bars.
 - Local Codex session log token counting.
+- Persistent day, week, and month usage log.
+- Daily Codex project token breakdown.
 - Optional OpenAI Usage API cost monitoring.
 - Encrypted local API key vault with device-owner authentication.
 - Codex permission monitoring with policy presets.

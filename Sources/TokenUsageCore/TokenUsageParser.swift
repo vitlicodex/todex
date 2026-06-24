@@ -5,6 +5,11 @@ public struct TokenUsageFileResult: Sendable {
     public var issues: [TokenMonitorIssue]
 }
 
+private struct ProjectMetadata {
+    var id: String
+    var name: String
+}
+
 public final class TokenUsageParser: @unchecked Sendable {
     private let isoFormatter: ISO8601DateFormatter
     private let maxStructuredJSONBytes: UInt64
@@ -94,7 +99,11 @@ public final class TokenUsageParser: @unchecked Sendable {
         let sourceID = StableHash.make(sourceURL.path)
         let newline = Data([0x0A])
         let tokenCountNeedle = Data(#""token_count""#.utf8)
+        let turnContextNeedle = Data(#""turn_context""#.utf8)
+        let sessionMetaNeedle = Data(#""session_meta""#.utf8)
+        let environmentContextNeedle = Data(#""environment_context""#.utf8)
         let onlyTokenCountLines = sourceURL.path.contains("/.codex/sessions/")
+        var currentProject: ProjectMetadata?
         var pending = Data()
         var lineNumber = 0
 
@@ -112,9 +121,13 @@ public final class TokenUsageParser: @unchecked Sendable {
                     lineNumber: lineNumber,
                     onlyTokenCountLines: onlyTokenCountLines,
                     tokenCountNeedle: tokenCountNeedle,
+                    turnContextNeedle: turnContextNeedle,
+                    sessionMetaNeedle: sessionMetaNeedle,
+                    environmentContextNeedle: environmentContextNeedle,
                     sourceURL: sourceURL,
                     sourceID: sourceID,
                     fallbackDate: fallbackDate,
+                    currentProject: &currentProject,
                     samples: &samples,
                     sawMalformedJSONLine: &sawMalformedJSONLine,
                     sawInvalidUTF8Line: &sawInvalidUTF8Line
@@ -133,9 +146,13 @@ public final class TokenUsageParser: @unchecked Sendable {
                 lineNumber: lineNumber,
                 onlyTokenCountLines: onlyTokenCountLines,
                 tokenCountNeedle: tokenCountNeedle,
+                turnContextNeedle: turnContextNeedle,
+                sessionMetaNeedle: sessionMetaNeedle,
+                environmentContextNeedle: environmentContextNeedle,
                 sourceURL: sourceURL,
                 sourceID: sourceID,
                 fallbackDate: fallbackDate,
+                currentProject: &currentProject,
                 samples: &samples,
                 sawMalformedJSONLine: &sawMalformedJSONLine,
                 sawInvalidUTF8Line: &sawInvalidUTF8Line
@@ -161,15 +178,19 @@ public final class TokenUsageParser: @unchecked Sendable {
         var samples: [TokenUsageSample] = []
         var sawMalformedJSONLine = false
         let sourceID = StableHash.make(sourceURL.path)
+        let onlyTokenCountLines = sourceURL.path.contains("/.codex/sessions/")
+        var currentProject: ProjectMetadata?
 
         for (index, rawLine) in text.split(whereSeparator: \.isNewline).enumerated() {
             guard samples.count < maxSamplesPerFile else { break }
             processLine(
                 String(rawLine),
                 lineNumber: index + 1,
+                onlyTokenCountLines: onlyTokenCountLines,
                 sourceURL: sourceURL,
                 sourceID: sourceID,
                 fallbackDate: fallbackDate,
+                currentProject: &currentProject,
                 samples: &samples,
                 sawMalformedJSONLine: &sawMalformedJSONLine
             )
@@ -187,28 +208,42 @@ public final class TokenUsageParser: @unchecked Sendable {
         lineNumber: Int,
         onlyTokenCountLines: Bool,
         tokenCountNeedle: Data,
+        turnContextNeedle: Data,
+        sessionMetaNeedle: Data,
+        environmentContextNeedle: Data,
         sourceURL: URL,
         sourceID: String,
         fallbackDate: Date,
+        currentProject: inout ProjectMetadata?,
         samples: inout [TokenUsageSample],
         sawMalformedJSONLine: inout Bool,
         sawInvalidUTF8Line: inout Bool
     ) {
-        if onlyTokenCountLines && lineData.range(of: tokenCountNeedle) == nil {
-            return
-        }
-
         guard let line = String(data: lineData, encoding: .utf8) else {
             sawInvalidUTF8Line = true
             return
         }
 
+        if onlyTokenCountLines {
+            if lineData.range(of: turnContextNeedle) != nil
+                || lineData.range(of: sessionMetaNeedle) != nil
+                || lineData.range(of: environmentContextNeedle) != nil {
+                updateProjectMetadata(from: line, currentProject: &currentProject)
+                return
+            }
+            guard lineData.range(of: tokenCountNeedle) != nil else {
+                return
+            }
+        }
+
         processLine(
             line,
             lineNumber: lineNumber,
+            onlyTokenCountLines: onlyTokenCountLines,
             sourceURL: sourceURL,
             sourceID: sourceID,
             fallbackDate: fallbackDate,
+            currentProject: &currentProject,
             samples: &samples,
             sawMalformedJSONLine: &sawMalformedJSONLine
         )
@@ -217,9 +252,11 @@ public final class TokenUsageParser: @unchecked Sendable {
     private func processLine(
         _ rawLine: String,
         lineNumber: Int,
+        onlyTokenCountLines: Bool = false,
         sourceURL: URL,
         sourceID: String,
         fallbackDate: Date,
+        currentProject: inout ProjectMetadata?,
         samples: inout [TokenUsageSample],
         sawMalformedJSONLine: inout Bool
     ) {
@@ -229,13 +266,20 @@ public final class TokenUsageParser: @unchecked Sendable {
         if line.first == "{" || line.first == "[" {
             if let data = line.data(using: .utf8),
                let object = try? JSONSerialization.jsonObject(with: data) {
+                if onlyTokenCountLines,
+                   let dictionary = object as? [String: Any],
+                   dictionaryContainsProjectMetadata(dictionary) {
+                    currentProject = projectMetadata(from: dictionary) ?? currentProject
+                    return
+                }
                 let location = "line:\(lineNumber)"
                 let extracted = self.samples(
                     from: object,
                     sourceURL: sourceURL,
                     sourceID: sourceID,
                     fallbackDate: fallbackDate,
-                    location: location
+                    location: location,
+                    currentProject: currentProject
                 )
                 samples.append(contentsOf: extracted)
                 return
@@ -243,7 +287,14 @@ public final class TokenUsageParser: @unchecked Sendable {
             sawMalformedJSONLine = true
         }
 
-        if let sample = regexSample(from: line, sourceURL: sourceURL, sourceID: sourceID, fallbackDate: fallbackDate, lineNumber: lineNumber) {
+        if let sample = regexSample(
+            from: line,
+            sourceURL: sourceURL,
+            sourceID: sourceID,
+            fallbackDate: fallbackDate,
+            lineNumber: lineNumber,
+            currentProject: currentProject
+        ) {
             samples.append(sample)
         }
     }
@@ -253,7 +304,8 @@ public final class TokenUsageParser: @unchecked Sendable {
         sourceURL: URL,
         sourceID: String,
         fallbackDate: Date,
-        location: String
+        location: String,
+        currentProject: ProjectMetadata? = nil
     ) -> [TokenUsageSample] {
         var output: [TokenUsageSample] = []
         collectSamples(
@@ -263,6 +315,7 @@ public final class TokenUsageParser: @unchecked Sendable {
             fallbackDate: fallbackDate,
             location: location,
             inheritedTimestamp: nil,
+            currentProject: currentProject,
             depth: 0,
             output: &output
         )
@@ -282,6 +335,7 @@ public final class TokenUsageParser: @unchecked Sendable {
         fallbackDate: Date,
         location: String,
         inheritedTimestamp: Date?,
+        currentProject: ProjectMetadata?,
         depth: Int,
         output: inout [TokenUsageSample]
     ) {
@@ -291,13 +345,15 @@ public final class TokenUsageParser: @unchecked Sendable {
 
         if let dictionary = object as? [String: Any] {
             let contextualTimestamp = timestamp(from: dictionary) ?? inheritedTimestamp
+            let contextualProject = projectMetadata(from: dictionary) ?? currentProject
             if let codexSample = codexTokenCountSample(
                 from: dictionary,
                 sourceURL: sourceURL,
                 sourceID: sourceID,
                 fallbackDate: fallbackDate,
                 location: location,
-                inheritedTimestamp: contextualTimestamp
+                inheritedTimestamp: contextualTimestamp,
+                currentProject: contextualProject
             ) {
                 output.append(codexSample)
                 return
@@ -310,7 +366,8 @@ public final class TokenUsageParser: @unchecked Sendable {
                 sourceID: sourceID,
                 fallbackDate: fallbackDate,
                 location: location,
-                inheritedTimestamp: contextualTimestamp
+                inheritedTimestamp: contextualTimestamp,
+                currentProject: contextualProject
             ) {
                 output.append(realSample)
             } else if let estimatedSample = estimatedSample(
@@ -319,7 +376,8 @@ public final class TokenUsageParser: @unchecked Sendable {
                 sourceID: sourceID,
                 fallbackDate: fallbackDate,
                 location: location,
-                inheritedTimestamp: contextualTimestamp
+                inheritedTimestamp: contextualTimestamp,
+                currentProject: contextualProject
             ) {
                 output.append(estimatedSample)
             }
@@ -334,6 +392,7 @@ public final class TokenUsageParser: @unchecked Sendable {
                     fallbackDate: fallbackDate,
                     location: "\(location).\(key)",
                     inheritedTimestamp: contextualTimestamp,
+                    currentProject: contextualProject,
                     depth: depth + 1,
                     output: &output
                 )
@@ -351,6 +410,7 @@ public final class TokenUsageParser: @unchecked Sendable {
                     fallbackDate: fallbackDate,
                     location: "\(location)[\(index)]",
                     inheritedTimestamp: inheritedTimestamp,
+                    currentProject: currentProject,
                     depth: depth + 1,
                     output: &output
                 )
@@ -376,7 +436,8 @@ public final class TokenUsageParser: @unchecked Sendable {
         sourceID: String,
         fallbackDate: Date,
         location: String,
-        inheritedTimestamp: Date?
+        inheritedTimestamp: Date?,
+        currentProject: ProjectMetadata?
     ) -> TokenUsageSample? {
         let payload = dictionary["payload"] as? [String: Any]
         let event = payload ?? dictionary
@@ -408,7 +469,9 @@ public final class TokenUsageParser: @unchecked Sendable {
             totalTokens: total,
             mode: .real,
             sourceID: sourceID,
-            sourcePath: sourceURL.path
+            sourcePath: sourceURL.path,
+            projectID: currentProject?.id,
+            projectName: currentProject?.name
         )
     }
 
@@ -418,7 +481,8 @@ public final class TokenUsageParser: @unchecked Sendable {
         sourceID: String,
         fallbackDate: Date,
         location: String,
-        inheritedTimestamp: Date?
+        inheritedTimestamp: Date?,
+        currentProject: ProjectMetadata?
     ) -> TokenUsageSample? {
         let inputTokens = intValue(in: dictionary, keys: [
             "input_tokens",
@@ -454,7 +518,9 @@ public final class TokenUsageParser: @unchecked Sendable {
             totalTokens: total,
             mode: .real,
             sourceID: sourceID,
-            sourcePath: sourceURL.path
+            sourcePath: sourceURL.path,
+            projectID: currentProject?.id,
+            projectName: currentProject?.name
         )
     }
 
@@ -464,7 +530,8 @@ public final class TokenUsageParser: @unchecked Sendable {
         sourceID: String,
         fallbackDate: Date,
         location: String,
-        inheritedTimestamp: Date?
+        inheritedTimestamp: Date?,
+        currentProject: ProjectMetadata?
     ) -> TokenUsageSample? {
         guard looksLikeUserPromptEvent(dictionary) else { return nil }
         guard let text = promptLikeText(from: dictionary), !text.isEmpty else { return nil }
@@ -481,7 +548,9 @@ public final class TokenUsageParser: @unchecked Sendable {
             totalTokens: estimatedTokens,
             mode: .estimated,
             sourceID: sourceID,
-            sourcePath: sourceURL.path
+            sourcePath: sourceURL.path,
+            projectID: currentProject?.id,
+            projectName: currentProject?.name
         )
     }
 
@@ -514,7 +583,8 @@ public final class TokenUsageParser: @unchecked Sendable {
         sourceURL: URL,
         sourceID: String,
         fallbackDate: Date,
-        lineNumber: Int
+        lineNumber: Int,
+        currentProject: ProjectMetadata?
     ) -> TokenUsageSample? {
         let input = regexInt(line, pattern: #"(?:input|prompt)[_\s-]*tokens?\s*[:=]\s*([0-9]+)"#) ?? 0
         let output = regexInt(line, pattern: #"(?:output|completion)[_\s-]*tokens?\s*[:=]\s*([0-9]+)"#) ?? 0
@@ -531,8 +601,96 @@ public final class TokenUsageParser: @unchecked Sendable {
             totalTokens: total,
             mode: .real,
             sourceID: sourceID,
-            sourcePath: sourceURL.path
+            sourcePath: sourceURL.path,
+            projectID: currentProject?.id,
+            projectName: currentProject?.name
         )
+    }
+
+    private func updateProjectMetadata(from line: String, currentProject: inout ProjectMetadata?) {
+        guard let data = line.data(using: .utf8),
+              let dictionary = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+        currentProject = projectMetadata(from: dictionary) ?? currentProject
+    }
+
+    private func dictionaryContainsProjectMetadata(_ dictionary: [String: Any]) -> Bool {
+        let metadataTypes = ["turn_context", "session_meta", "environment_context"]
+        if let type = stringValue(in: dictionary, keys: ["type"]),
+           metadataTypes.contains(type) {
+            return true
+        }
+        if let payload = dictionary["payload"] as? [String: Any],
+           let type = stringValue(in: payload, keys: ["type"]),
+           metadataTypes.contains(type) {
+            return true
+        }
+        return false
+    }
+
+    private func projectMetadata(from dictionary: [String: Any]) -> ProjectMetadata? {
+        let candidates = projectPathCandidates(from: dictionary)
+        for candidate in candidates {
+            let normalized = normalizedProjectPath(candidate)
+            guard !normalized.isEmpty else { continue }
+            let name = projectName(from: normalized)
+            guard !name.isEmpty else { continue }
+            return ProjectMetadata(id: StableHash.make(normalized), name: name)
+        }
+        return nil
+    }
+
+    private func projectPathCandidates(from dictionary: [String: Any]) -> [String] {
+        var output: [String] = []
+        collectProjectPathCandidates(from: dictionary, output: &output, depth: 0)
+        return output
+    }
+
+    private func collectProjectPathCandidates(from object: Any, output: inout [String], depth: Int) {
+        guard depth <= 4, output.count < 12 else { return }
+        if let dictionary = object as? [String: Any] {
+            for (key, value) in dictionary {
+                let lowered = key.lowercased()
+                if ["cwd", "workdir", "working_directory", "current_working_directory", "workspace", "workspace_root", "workspace_directory", "project_path"].contains(lowered),
+                   let string = value as? String {
+                    output.append(string)
+                } else if ["workspace_roots", "workspace_folders", "roots"].contains(lowered),
+                          let array = value as? [Any] {
+                    for item in array {
+                        if let string = item as? String {
+                            output.append(string)
+                        } else {
+                            collectProjectPathCandidates(from: item, output: &output, depth: depth + 1)
+                        }
+                    }
+                } else if lowered == "payload" || lowered == "turn_context" || lowered == "context" || lowered == "environment_context" {
+                    collectProjectPathCandidates(from: value, output: &output, depth: depth + 1)
+                }
+            }
+        } else if let array = object as? [Any] {
+            for item in array {
+                collectProjectPathCandidates(from: item, output: &output, depth: depth + 1)
+            }
+        }
+    }
+
+    private func normalizedProjectPath(_ path: String) -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        return URL(fileURLWithPath: trimmed).standardizedFileURL.path
+    }
+
+    private func projectName(from path: String) -> String {
+        let url = URL(fileURLWithPath: path)
+        let last = url.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !last.isEmpty && last != "/" {
+            return last
+        }
+        return path
+            .split(separator: "/")
+            .last
+            .map(String.init) ?? "Unknown Project"
     }
 
     private func regexInt(_ line: String, pattern: String) -> Int? {

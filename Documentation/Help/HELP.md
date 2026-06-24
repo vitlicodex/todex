@@ -29,6 +29,7 @@ Full token counts, status, requests, costs, and permission state are shown in th
 The dropdown is organized around the common workflow:
 
 - **Overview**: refresh, tokens, requests, costs, averages.
+- **Usage Log**: today, yesterday, week, month, daily history, Codex projects today.
 - **Reports & Data**: full report, raw source, export, breakdowns.
 - **Codex Permissions**: current permission state and local policy toggles.
 - **API Key & Security**: unlock, lock, set, clear, clipboard key.
@@ -50,6 +51,21 @@ It stream-reads session files and imports only `token_count` events. For Codex s
 The app uses `last_token_usage` as the per-request sample. It deliberately ignores cumulative `total_token_usage` for counting, because summing cumulative totals would double count.
 
 ![Data flow](images/data-flow.png)
+
+## Usage Log
+
+The **Usage Log** menu shows:
+
+- today;
+- yesterday;
+- this week;
+- this month;
+- the last 14 days;
+- Codex projects today.
+
+The current day's totals are computed from persisted local samples, so they survive app restarts. **Reset Session Statistics** starts a new session baseline but keeps day, week, and month history. **Reset All Statistics** clears persisted numeric history after confirmation.
+
+For Codex projects, the app reads workspace metadata from `session_meta` and `turn_context` lines when available. It stores a stable project hash and the last folder name as the project label. It does not store prompt content or raw project metadata for the project breakdown.
 
 ## OpenAI API Usage
 

@@ -100,6 +100,10 @@ public final class OpenAIUsageClient: @unchecked Sendable {
 
         let calendar = Self.utcCalendar
         let todayStart = calendar.startOfDay(for: now)
+        let yesterdayStart = calendar.date(byAdding: .day, value: -1, to: todayStart) ?? todayStart
+        let tomorrowStart = calendar.date(byAdding: .day, value: 1, to: todayStart) ?? now
+        let weekInterval = calendar.dateInterval(of: .weekOfYear, for: now)
+            ?? DateInterval(start: todayStart, end: tomorrowStart)
         let monthStart = Self.monthStart(for: now)
         var monthlyInput = 0
         var monthlyOutput = 0
@@ -111,11 +115,14 @@ public final class OpenAIUsageClient: @unchecked Sendable {
         var dailyRequests = 0
         var modelBreakdown: [String: UsageBreakdown] = [:]
         var projectBreakdown: [String: UsageBreakdown] = [:]
+        var todayProjectBreakdown: [String: UsageBreakdown] = [:]
         var apiKeyBreakdown: [String: UsageBreakdown] = [:]
+        var dailyUsage: [Date: UsagePeriodSummary] = [:]
         var latestDate: Date?
 
         for bucket in buckets {
             let bucketStart = dateFromEpoch(bucket["start_time"]) ?? monthStart
+            let bucketDay = calendar.startOfDay(for: bucketStart)
             latestDate = maxDate(latestDate, bucketStart)
             guard let results = bucket["results"] as? [[String: Any]] else { continue }
 
@@ -124,10 +131,15 @@ public final class OpenAIUsageClient: @unchecked Sendable {
                 let output = intValue(result["output_tokens"]) + intValue(result["output_audio_tokens"])
                 let cached = intValue(result["input_cached_tokens"])
                 let requests = intValue(result["num_model_requests"])
-                monthlyInput += input
-                monthlyOutput += output
-                monthlyCached += cached
-                monthlyRequests += requests
+
+                accumulateDailyUsage(&dailyUsage, day: bucketDay, input: input, output: output, requests: requests)
+
+                if bucketStart >= monthStart {
+                    monthlyInput += input
+                    monthlyOutput += output
+                    monthlyCached += cached
+                    monthlyRequests += requests
+                }
 
                 if calendar.isDate(bucketStart, inSameDayAs: todayStart) {
                     dailyInput += input
@@ -136,13 +148,18 @@ public final class OpenAIUsageClient: @unchecked Sendable {
                     dailyRequests += requests
                 }
 
-                if settings.isEnabled(.modelBreakdown), let model = result["model"] as? String {
+                if settings.isEnabled(.modelBreakdown), bucketStart >= monthStart, let model = result["model"] as? String {
                     accumulate(&modelBreakdown, label: model, input: input, output: output, cached: cached, requests: requests)
                 }
                 if settings.isEnabled(.projectBreakdown), let project = result["project_id"] as? String {
-                    accumulate(&projectBreakdown, label: project, input: input, output: output, cached: cached, requests: requests)
+                    if bucketStart >= monthStart {
+                        accumulate(&projectBreakdown, label: project, input: input, output: output, cached: cached, requests: requests)
+                    }
+                    if calendar.isDate(bucketStart, inSameDayAs: todayStart) {
+                        accumulate(&todayProjectBreakdown, label: project, input: input, output: output, cached: cached, requests: requests)
+                    }
                 }
-                if settings.isEnabled(.apiKeyBreakdown), let apiKeyID = result["api_key_id"] as? String {
+                if settings.isEnabled(.apiKeyBreakdown), bucketStart >= monthStart, let apiKeyID = result["api_key_id"] as? String {
                     accumulate(&apiKeyBreakdown, label: apiKeyID, input: input, output: output, cached: cached, requests: requests)
                 }
             }
@@ -151,6 +168,22 @@ public final class OpenAIUsageClient: @unchecked Sendable {
         let dailyTokens = dailyInput + dailyOutput
         let monthlyTokens = monthlyInput + monthlyOutput
         let average = monthlyRequests > 0 ? Double(monthlyTokens) / Double(monthlyRequests) : 0
+        let weekSummary = periodSummary(label: "This week", dailyUsage: dailyUsage, interval: weekInterval)
+        let yesterdayUsage = dailyUsage[yesterdayStart] ?? UsagePeriodSummary(label: "Yesterday")
+        let todayUsage = UsagePeriodSummary(
+            label: "Today",
+            inputTokens: dailyInput,
+            outputTokens: dailyOutput,
+            totalTokens: dailyTokens,
+            requests: dailyRequests
+        )
+        let monthUsage = UsagePeriodSummary(
+            label: "This month",
+            inputTokens: monthlyInput,
+            outputTokens: monthlyOutput,
+            totalTokens: monthlyTokens,
+            requests: monthlyRequests
+        )
 
         return TokenUsageStatistics(
             currentSessionPrompts: dailyRequests,
@@ -176,7 +209,19 @@ public final class OpenAIUsageClient: @unchecked Sendable {
             dataSource: "OpenAI Usage API",
             modelBreakdown: sortedBreakdown(modelBreakdown),
             projectBreakdown: sortedBreakdown(projectBreakdown),
-            apiKeyBreakdown: sortedBreakdown(apiKeyBreakdown)
+            apiKeyBreakdown: sortedBreakdown(apiKeyBreakdown),
+            todayUsage: todayUsage,
+            yesterdayUsage: UsagePeriodSummary(
+                label: "Yesterday",
+                inputTokens: yesterdayUsage.inputTokens,
+                outputTokens: yesterdayUsage.outputTokens,
+                totalTokens: yesterdayUsage.totalTokens,
+                requests: yesterdayUsage.requests
+            ),
+            currentWeekUsage: weekSummary,
+            currentMonthUsage: monthUsage,
+            recentDailyUsage: recentDailyUsage(from: dailyUsage, calendar: calendar, todayStart: todayStart),
+            todayProjectBreakdown: sortedBreakdown(todayProjectBreakdown)
         )
     }
 
@@ -194,6 +239,7 @@ public final class OpenAIUsageClient: @unchecked Sendable {
 
         let calendar = Self.utcCalendar
         let todayStart = calendar.startOfDay(for: now)
+        let monthStart = Self.monthStart(for: now)
         var dailyCost = 0.0
         var monthlyCost = 0.0
         var projectCosts: [String: Double] = [:]
@@ -205,14 +251,16 @@ public final class OpenAIUsageClient: @unchecked Sendable {
 
             for result in results {
                 let value = amountValue(result["amount"])
-                monthlyCost += value
+                if bucketStart >= monthStart {
+                    monthlyCost += value
+                }
                 if calendar.isDate(bucketStart, inSameDayAs: todayStart) {
                     dailyCost += value
                 }
-                if settings.isEnabled(.projectBreakdown), let project = result["project_id"] as? String {
+                if settings.isEnabled(.projectBreakdown), bucketStart >= monthStart, let project = result["project_id"] as? String {
                     projectCosts[project, default: 0] += value
                 }
-                if settings.isEnabled(.apiKeyBreakdown), let apiKeyID = result["api_key_id"] as? String {
+                if settings.isEnabled(.apiKeyBreakdown), bucketStart >= monthStart, let apiKeyID = result["api_key_id"] as? String {
                     apiKeyCosts[apiKeyID, default: 0] += value
                 }
             }
@@ -276,10 +324,15 @@ public final class OpenAIUsageClient: @unchecked Sendable {
     }
 
     private func commonQueryItems(now: Date) -> [URLQueryItem] {
-        [
-            URLQueryItem(name: "start_time", value: "\(Int(Self.monthStart(for: now).timeIntervalSince1970))"),
+        let calendar = Self.utcCalendar
+        let todayStart = calendar.startOfDay(for: now)
+        let recentStart = calendar.date(byAdding: .day, value: -13, to: todayStart) ?? todayStart
+        let monthStart = Self.monthStart(for: now)
+        let queryStart = min(recentStart, monthStart)
+        return [
+            URLQueryItem(name: "start_time", value: "\(Int(queryStart.timeIntervalSince1970))"),
             URLQueryItem(name: "bucket_width", value: "1d"),
-            URLQueryItem(name: "limit", value: "31")
+            URLQueryItem(name: "limit", value: "62")
         ]
     }
 
@@ -325,6 +378,84 @@ public final class OpenAIUsageClient: @unchecked Sendable {
 
     private func sortedBreakdown(_ breakdown: [String: UsageBreakdown]) -> [UsageBreakdown] {
         breakdown.values.sorted { $0.totalTokens > $1.totalTokens }
+    }
+
+    private func accumulateDailyUsage(
+        _ dailyUsage: inout [Date: UsagePeriodSummary],
+        day: Date,
+        input: Int,
+        output: Int,
+        requests: Int
+    ) {
+        var summary = dailyUsage[day] ?? UsagePeriodSummary(label: Self.dayLabel(for: day))
+        summary.inputTokens += input
+        summary.outputTokens += output
+        summary.totalTokens += input + output
+        summary.requests += requests
+        dailyUsage[day] = summary
+    }
+
+    private func periodSummary(
+        label: String,
+        dailyUsage: [Date: UsagePeriodSummary],
+        interval: DateInterval
+    ) -> UsagePeriodSummary {
+        dailyUsage.reduce(UsagePeriodSummary(label: label)) { partial, entry in
+            guard interval.contains(entry.key) else {
+                return partial
+            }
+            let summary = entry.value
+            return UsagePeriodSummary(
+                label: label,
+                inputTokens: partial.inputTokens + summary.inputTokens,
+                outputTokens: partial.outputTokens + summary.outputTokens,
+                totalTokens: partial.totalTokens + summary.totalTokens,
+                requests: partial.requests + summary.requests
+            )
+        }
+    }
+
+    private func recentDailyUsage(
+        from dailyUsage: [Date: UsagePeriodSummary],
+        calendar: Calendar,
+        todayStart: Date
+    ) -> [UsagePeriodSummary] {
+        var output: [UsagePeriodSummary] = []
+        output.reserveCapacity(14)
+
+        for offset in stride(from: 13, through: 0, by: -1) {
+            guard let day = calendar.date(byAdding: .day, value: -offset, to: todayStart) else {
+                continue
+            }
+            let raw = dailyUsage[day] ?? UsagePeriodSummary(label: Self.dayLabel(for: day))
+            let label: String
+            if offset == 0 {
+                label = "Today"
+            } else if offset == 1 {
+                label = "Yesterday"
+            } else {
+                label = raw.label
+            }
+            output.append(
+                UsagePeriodSummary(
+                    label: label,
+                    inputTokens: raw.inputTokens,
+                    outputTokens: raw.outputTokens,
+                    totalTokens: raw.totalTokens,
+                    requests: raw.requests
+                )
+            )
+        }
+
+        return output
+    }
+
+    private static func dayLabel(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = utcCalendar
+        formatter.timeZone = utcCalendar.timeZone
+        formatter.dateFormat = "MMM d"
+        return formatter.string(from: date)
     }
 
     private func intValue(_ value: Any?) -> Int {

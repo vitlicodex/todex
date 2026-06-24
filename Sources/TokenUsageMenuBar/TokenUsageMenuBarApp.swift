@@ -151,6 +151,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
 
         menu.addItem(.separator())
         addOverviewSubmenu(to: menu)
+        addUsageLogSubmenu(to: menu)
         addReportsSubmenu(to: menu)
         addPermissionsSubmenu(to: menu)
         addAPIKeySecuritySubmenu(to: menu)
@@ -210,11 +211,17 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
             formatUSD(statistics.dailyCostUSD),
             formatUSD(statistics.monthlyCostUSD),
             formatBudget(),
+            periodSignature(statistics.todayUsage),
+            periodSignature(statistics.yesterdayUsage),
+            periodSignature(statistics.currentWeekUsage),
+            periodSignature(statistics.currentMonthUsage),
+            statistics.recentDailyUsage.map(periodSignature).joined(separator: ","),
             statistics.issues.map(\.message).joined(separator: "\u{1f}")
         ].joined(separator: "|")
             + "|\(breakdownSignature(statistics.modelBreakdown))"
             + "|\(breakdownSignature(statistics.projectBreakdown))"
             + "|\(breakdownSignature(statistics.apiKeyBreakdown))"
+            + "|\(breakdownSignature(statistics.todayProjectBreakdown))"
     }
 
     private func breakdownSignature(_ rows: [UsageBreakdown]) -> String {
@@ -223,6 +230,10 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
                 "\(row.label):\(row.inputTokens):\(row.outputTokens):\(row.cachedInputTokens):\(row.requests):\(row.costUSD ?? -1)"
             }
             .joined(separator: ",")
+    }
+
+    private func periodSignature(_ summary: UsagePeriodSummary) -> String {
+        "\(summary.label):\(summary.inputTokens):\(summary.outputTokens):\(summary.totalTokens):\(summary.requests)"
     }
 
     private func permissionMenuSignature() -> String {
@@ -293,6 +304,34 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
             addDisabled("Daily cost: \(formatUSD(statistics.dailyCostUSD))", to: submenu)
             addDisabled("Monthly cost: \(formatUSD(statistics.monthlyCostUSD))", to: submenu)
             addDisabled("Budget: \(formatBudget())", to: submenu)
+        }
+    }
+
+    private func addUsageLogSubmenu(to menu: NSMenu) {
+        addSubmenu("Usage Log", to: menu) { submenu in
+            addDisabled(periodLine(statistics.todayUsage), to: submenu)
+            addDisabled(periodLine(statistics.yesterdayUsage), to: submenu)
+            addDisabled(periodLine(statistics.currentWeekUsage), to: submenu)
+            addDisabled(periodLine(statistics.currentMonthUsage), to: submenu)
+
+            submenu.addItem(.separator())
+            addDisabled("Daily History", to: submenu)
+            let rows = statistics.recentDailyUsage.isEmpty
+                ? [statistics.todayUsage]
+                : Array(statistics.recentDailyUsage.suffix(14).reversed())
+            for summary in rows {
+                addDisabled(periodLine(summary), to: submenu)
+            }
+
+            submenu.addItem(.separator())
+            addDisabled("Codex Projects Today", to: submenu)
+            if statistics.todayProjectBreakdown.isEmpty {
+                addDisabled("No project metadata yet", to: submenu)
+            } else {
+                for row in statistics.todayProjectBreakdown.prefix(8) {
+                    addDisabled(projectLine(row), to: submenu)
+                }
+            }
         }
     }
 
@@ -459,6 +498,14 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
             let cost = row.costUSD.map { " · \(formatUSD($0))" } ?? ""
             addDisabled("\(row.label): \(Self.compact(row.totalTokens)) tok · \(row.requests) req\(cost)", to: menu)
         }
+    }
+
+    private func periodLine(_ summary: UsagePeriodSummary) -> String {
+        "\(summary.label): \(Self.compact(summary.totalTokens)) tok · \(summary.requests) req · in \(Self.compact(summary.inputTokens)) / out \(Self.compact(summary.outputTokens))"
+    }
+
+    private func projectLine(_ row: UsageBreakdown) -> String {
+        "\(row.label): \(Self.compact(row.totalTokens)) tok · \(row.requests) req"
     }
 
     private func addPermissionBundleSubmenus(to menu: NSMenu) {
@@ -1403,6 +1450,21 @@ actor TokenRefreshWorker {
         - Cached input tokens today: \(lastStatistics.cachedInputTokens)
         - Daily cost: \(lastStatistics.dailyCostUSD.map { String(format: "$%.4f", $0) } ?? "n/a")
         - Monthly cost: \(lastStatistics.monthlyCostUSD.map { String(format: "$%.4f", $0) } ?? "n/a")
+
+        ## Usage Log
+
+        - Today: \(lastStatistics.todayUsage.totalTokens) tokens, \(lastStatistics.todayUsage.requests) requests
+        - Yesterday: \(lastStatistics.yesterdayUsage.totalTokens) tokens, \(lastStatistics.yesterdayUsage.requests) requests
+        - This week: \(lastStatistics.currentWeekUsage.totalTokens) tokens, \(lastStatistics.currentWeekUsage.requests) requests
+        - This month: \(lastStatistics.currentMonthUsage.totalTokens) tokens, \(lastStatistics.currentMonthUsage.requests) requests
+
+        ## Daily History
+
+        \(lastStatistics.recentDailyUsage.isEmpty ? "- No daily history yet" : lastStatistics.recentDailyUsage.map { "- \($0.label): \($0.totalTokens) tokens, \($0.requests) requests" }.joined(separator: "\n"))
+
+        ## Codex Projects Today
+
+        \(lastStatistics.todayProjectBreakdown.isEmpty ? "- No project metadata yet" : lastStatistics.todayProjectBreakdown.map { "- \($0.label): \($0.totalTokens) tokens, \($0.requests) requests" }.joined(separator: "\n"))
 
         This report contains numeric usage statistics and technical metadata only.
         """

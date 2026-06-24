@@ -25,7 +25,14 @@ private func temporaryDirectory() throws -> URL {
     return url
 }
 
-private func sample(id: String, timestamp: Date, input: Int, output: Int) -> TokenUsageSample {
+private func sample(
+    id: String,
+    timestamp: Date,
+    input: Int,
+    output: Int,
+    projectID: String? = nil,
+    projectName: String? = nil
+) -> TokenUsageSample {
     TokenUsageSample(
         id: id,
         timestamp: timestamp,
@@ -34,7 +41,9 @@ private func sample(id: String, timestamp: Date, input: Int, output: Int) -> Tok
         totalTokens: input + output,
         mode: .real,
         sourceID: "source",
-        sourcePath: "/tmp/source.jsonl"
+        sourcePath: "/tmp/source.jsonl",
+        projectID: projectID,
+        projectName: projectName
     )
 }
 
@@ -101,6 +110,29 @@ private func testStreamingCodexSessionParserSkipsPromptLines() throws {
     expectEqual(result.samples.first?.totalTokens, 15, "Codex session stream should parse token_count total.")
 }
 
+private func testCodexSessionParserAttachesProjectMetadata() throws {
+    let temp = try temporaryDirectory()
+    let project = temp.appendingPathComponent("alpha", isDirectory: true)
+    let sessions = temp
+        .appendingPathComponent(".codex", isDirectory: true)
+        .appendingPathComponent("sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+    let url = sessions.appendingPathComponent("rollout.jsonl")
+    let text = """
+    {"timestamp":"2026-06-23T09:59:59.000Z","type":"session_meta","payload":{"cwd":"\(project.path)","originator":"Codex Desktop"}}
+    {"timestamp":"2026-06-23T10:00:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":21,"output_tokens":4,"total_tokens":25}}}}
+    """
+    try text.write(to: url, atomically: true, encoding: .utf8)
+
+    let result = TokenUsageParser().parse(url: url)
+
+    expect(result.issues.isEmpty, "Codex session parser should attach project metadata without issues.")
+    expectEqual(result.samples.count, 1, "Codex project metadata test should produce one sample.")
+    expectEqual(result.samples.first?.projectName, "alpha", "Codex project name should use the workspace folder name.")
+    expect(result.samples.first?.projectID?.isEmpty == false, "Codex project id should be a non-empty stable hash.")
+}
+
 private func testPermissionMonitorFlagsBroadPermissions() throws {
     let temp = try temporaryDirectory()
     let codex = temp.appendingPathComponent(".codex", isDirectory: true)
@@ -164,6 +196,33 @@ private func testStoreAggregatesSessionAndTotalStatistics() throws {
     expectEqual(stats.peakPromptCost, 150, "Peak prompt cost should match current sample.")
 }
 
+private func testStorePersistsDailyHistoryAndProjectBreakdown() throws {
+    let temp = try temporaryDirectory()
+    let store = TokenUsageStore(stateURL: temp.appendingPathComponent("stats.json"))
+    let calendar = Calendar.current
+    let now = Date()
+    let todayStart = calendar.startOfDay(for: now)
+    let yesterdayStart = calendar.date(byAdding: .day, value: -1, to: todayStart) ?? todayStart
+    let today = calendar.date(byAdding: .hour, value: 1, to: todayStart) ?? now
+    let yesterday = calendar.date(byAdding: .hour, value: 1, to: yesterdayStart) ?? now
+
+    try store.resetAll(sessionStartedAt: yesterdayStart)
+    try store.add([
+        sample(id: "today-alpha", timestamp: today, input: 100, output: 50, projectID: "project-alpha", projectName: "alpha"),
+        sample(id: "today-beta", timestamp: today.addingTimeInterval(10), input: 20, output: 5, projectID: "project-beta", projectName: "beta"),
+        sample(id: "yesterday-alpha", timestamp: yesterday, input: 30, output: 10, projectID: "project-alpha", projectName: "alpha")
+    ])
+
+    let stats = store.statistics(activeSourcePath: nil, issues: [], now: now)
+
+    expectEqual(stats.todayUsage.totalTokens, 175, "Today usage should include today's samples after restart-safe persistence.")
+    expectEqual(stats.yesterdayUsage.totalTokens, 40, "Yesterday usage should include yesterday's samples.")
+    expectEqual(stats.currentMonthUsage.totalTokens >= 215, true, "Current month usage should include recent samples.")
+    expectEqual(stats.todayProjectBreakdown.first?.label, "alpha", "Today project breakdown should be sorted by token count.")
+    expectEqual(stats.todayProjectBreakdown.first?.totalTokens, 150, "Today project breakdown should aggregate tokens by project.")
+    expect(stats.recentDailyUsage.contains { $0.label == "Today" && $0.totalTokens == 175 }, "Recent daily usage should include today.")
+}
+
 private func testParserRefusesOversizedStructuredJSONFile() throws {
     let temp = try temporaryDirectory()
     let url = temp.appendingPathComponent("usage.json")
@@ -184,9 +243,11 @@ private let tests: [(String, () throws -> Void)] = [
     ("OpenAI usage JSON parsing", testParsesOpenAIStyleUsageJSON),
     ("Codex token_count parsing", testCodexTokenCountUsesLastUsageOnly),
     ("Codex session prompt skipping", testStreamingCodexSessionParserSkipsPromptLines),
+    ("Codex project metadata parsing", testCodexSessionParserAttachesProjectMetadata),
     ("Codex permission monitoring", testPermissionMonitorFlagsBroadPermissions),
     ("Permission presets", testPermissionPresetLevelsApplyExpectedRules),
     ("Usage store aggregation", testStoreAggregatesSessionAndTotalStatistics),
+    ("Usage store daily history", testStorePersistsDailyHistoryAndProjectBreakdown),
     ("Oversized JSON refusal", testParserRefusesOversizedStructuredJSONFile)
 ]
 
