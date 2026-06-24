@@ -278,6 +278,114 @@ private func testStorePersistsDailyHistoryAndProjectBreakdown() throws {
     expect(stats.recentDailyUsage.contains { $0.label == "Today" && $0.totalTokens == 175 }, "Recent daily usage should include today.")
 }
 
+private func testStoreDecodesLegacyStateWithoutFingerprints() throws {
+    let temp = try temporaryDirectory()
+    let url = temp.appendingPathComponent("stats.json")
+    let text = """
+    {
+      "sessionStartedAt": "2026-06-23T10:00:00Z",
+      "samples": [],
+      "seenSampleIDs": [],
+      "hasExplicitSessionReset": true
+    }
+    """
+    try text.write(to: url, atomically: true, encoding: .utf8)
+
+    let store = TokenUsageStore(stateURL: url)
+
+    expect(store.state.sourceFingerprints.isEmpty, "Legacy stats.json should decode with empty source fingerprints.")
+    expect(store.state.sourceCursors.isEmpty, "Legacy stats.json should decode with empty source cursors.")
+    expect(store.state.samples.isEmpty, "Legacy stats.json should preserve samples while decoding.")
+}
+
+private func testEnginePersistsSourceFingerprintsAcrossRestart() throws {
+    let temp = try temporaryDirectory()
+    let sessions = temp
+        .appendingPathComponent(".codex", isDirectory: true)
+        .appendingPathComponent("sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+    let source = sessions.appendingPathComponent("rollout.jsonl")
+    try """
+    {"timestamp":"2026-06-23T10:00:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":12,"output_tokens":3,"total_tokens":15}}}}
+    """.write(to: source, atomically: true, encoding: .utf8)
+
+    let storeURL = temp.appendingPathComponent("stats.json")
+    let store = TokenUsageStore(stateURL: storeURL)
+    let discovery = TokenSourceDiscovery(homeDirectory: temp)
+    let engine = TokenUsageEngine(store: store, discovery: discovery)
+
+    let firstStats = engine.refresh(force: true)
+    expectEqual(firstStats.totalTokens, 15, "First refresh should import source token usage.")
+    expect(!store.state.sourceFingerprints.isEmpty, "First refresh should persist source fingerprints.")
+
+    let reloadedStore = TokenUsageStore(stateURL: storeURL)
+    let reloadedEngine = TokenUsageEngine(store: reloadedStore, discovery: discovery)
+    let reloadedStats = reloadedEngine.refresh(force: true)
+
+    expect(!reloadedStore.state.sourceFingerprints.isEmpty, "Reloaded store should retain source fingerprints.")
+    expectEqual(reloadedStats.totalTokens, 15, "Reloaded engine should keep persisted totals without duplicating samples.")
+    expectEqual(reloadedStore.state.samples.count, 1, "Reloaded engine should not duplicate already imported samples.")
+}
+
+private func append(_ text: String, to url: URL) throws {
+    let handle = try FileHandle(forWritingTo: url)
+    defer {
+        try? handle.close()
+    }
+    try handle.seekToEnd()
+    try handle.write(contentsOf: Data(text.utf8))
+}
+
+private func testEngineUsesIncrementalCursorForAppendedSessionLog() throws {
+    let temp = try temporaryDirectory()
+    let project = temp.appendingPathComponent("alpha", isDirectory: true)
+    let sessions = temp
+        .appendingPathComponent(".codex", isDirectory: true)
+        .appendingPathComponent("sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+    let source = sessions.appendingPathComponent("rollout.jsonl")
+    try """
+    {"timestamp":"2026-06-23T09:59:59.000Z","type":"session_meta","payload":{"cwd":"\(project.path)","originator":"Codex Desktop"}}
+    {"timestamp":"2026-06-23T10:00:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":12,"output_tokens":3,"total_tokens":15}}}}
+    """.write(to: source, atomically: true, encoding: .utf8)
+
+    let storeURL = temp.appendingPathComponent("stats.json")
+    let store = TokenUsageStore(stateURL: storeURL)
+    let discovery = TokenSourceDiscovery(homeDirectory: temp)
+    let engine = TokenUsageEngine(store: store, discovery: discovery)
+
+    let firstStats = engine.refresh(force: true)
+    let firstCursor = store.state.sourceCursors.values.first
+    expectEqual(firstStats.totalTokens, 15, "Initial incremental test import should parse the first sample.")
+    expect(firstCursor?.offset ?? 0 > 0, "Initial import should persist a scan cursor.")
+    expectEqual(firstCursor?.projectName, "alpha", "Initial import should persist project metadata for the cursor.")
+
+    try append(
+        "\n{\"timestamp\":\"2026-06-23T10:01:00.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"last_token_usage\":{\"input_tokens\":8,\"output_tokens\":2,\"total_tokens\":10}}}}\n",
+        to: source
+    )
+    let secondStats = engine.refresh(force: true)
+    let secondCursor = store.state.sourceCursors.values.first
+
+    expectEqual(secondStats.totalTokens, 25, "Incremental refresh should add only the appended sample.")
+    expectEqual(store.state.samples.count, 2, "Incremental refresh should not duplicate existing samples.")
+    expectEqual(store.state.samples.last?.projectName, "alpha", "Incremental refresh should carry project metadata into appended samples.")
+    expect((secondCursor?.offset ?? 0) > (firstCursor?.offset ?? 0), "Incremental refresh should advance the scan cursor.")
+
+    let reloadedStore = TokenUsageStore(stateURL: storeURL)
+    let reloadedEngine = TokenUsageEngine(store: reloadedStore, discovery: discovery)
+    try append(
+        "{\"timestamp\":\"2026-06-23T10:02:00.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"last_token_usage\":{\"input_tokens\":4,\"output_tokens\":1,\"total_tokens\":5}}}}\n",
+        to: source
+    )
+    let thirdStats = reloadedEngine.refresh(force: true)
+
+    expectEqual(thirdStats.totalTokens, 30, "Reloaded engine should resume from the persisted cursor.")
+    expectEqual(reloadedStore.state.samples.count, 3, "Reloaded incremental refresh should append one new sample.")
+    expectEqual(reloadedStore.state.samples.last?.projectName, "alpha", "Reloaded cursor should retain project metadata.")
+}
+
 private func testPrivateFileIORejectsSymlinkDestination() throws {
     let temp = try temporaryDirectory()
     let realFile = temp.appendingPathComponent("real.json")
@@ -319,6 +427,9 @@ private let tests: [(String, () throws -> Void)] = [
     ("Usage store aggregation", testStoreAggregatesSessionAndTotalStatistics),
     ("Usage store project enrichment", testStoreEnrichesExistingSampleProjectMetadata),
     ("Usage store daily history", testStorePersistsDailyHistoryAndProjectBreakdown),
+    ("Legacy state migration", testStoreDecodesLegacyStateWithoutFingerprints),
+    ("Source fingerprint persistence", testEnginePersistsSourceFingerprintsAcrossRestart),
+    ("Incremental source cursor", testEngineUsesIncrementalCursorForAppendedSessionLog),
     ("Private file symlink refusal", testPrivateFileIORejectsSymlinkDestination),
     ("Oversized JSON refusal", testParserRefusesOversizedStructuredJSONFile)
 ]

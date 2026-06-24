@@ -3,6 +3,26 @@ import Foundation
 public struct TokenUsageFileResult: Sendable {
     public var samples: [TokenUsageSample]
     public var issues: [TokenMonitorIssue]
+    public var parsedBytes: UInt64?
+    public var parsedLineCount: Int?
+    public var projectID: String?
+    public var projectName: String?
+
+    public init(
+        samples: [TokenUsageSample],
+        issues: [TokenMonitorIssue],
+        parsedBytes: UInt64? = nil,
+        parsedLineCount: Int? = nil,
+        projectID: String? = nil,
+        projectName: String? = nil
+    ) {
+        self.samples = samples
+        self.issues = issues
+        self.parsedBytes = parsedBytes
+        self.parsedLineCount = parsedLineCount
+        self.projectID = projectID
+        self.projectName = projectName
+    }
 }
 
 private struct ProjectMetadata {
@@ -87,10 +107,68 @@ public final class TokenUsageParser: @unchecked Sendable {
         return parseJSONLinesOrLog(data: data, sourceURL: sourceURL, fallbackDate: fallbackDate)
     }
 
-    private func parseJSONLinesOrLog(url: URL, sourceURL: URL, fallbackDate: Date) throws -> TokenUsageFileResult {
+    public func parse(
+        url: URL,
+        fromOffset offset: UInt64,
+        lineNumber: Int,
+        projectID: String?,
+        projectName: String?
+    ) -> TokenUsageFileResult {
+        let extensionName = url.pathExtension.lowercased()
+        guard extensionName == "jsonl" || extensionName == "log", offset > 0 else {
+            return parse(url: url)
+        }
+
+        let size = sourceSize(url)
+        guard offset < size else {
+            return TokenUsageFileResult(
+                samples: [],
+                issues: [],
+                parsedBytes: size,
+                parsedLineCount: lineNumber,
+                projectID: projectID,
+                projectName: projectName
+            )
+        }
+        if size > maxJSONLinesBytes {
+            return TokenUsageFileResult(samples: [], issues: [.unreadableSource(url.path, "File is too large to parse safely.")])
+        }
+
+        let initialProject = projectID.flatMap { id in
+            projectName.map { ProjectMetadata(id: id, name: $0) }
+        }
+        do {
+            return try parseJSONLinesOrLog(
+                url: url,
+                sourceURL: url,
+                fallbackDate: sourceModifiedAt(url),
+                startOffset: offset,
+                initialLineNumber: lineNumber,
+                initialProject: initialProject
+            )
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain && nsError.code == NSFileReadNoPermissionError {
+                return TokenUsageFileResult(samples: [], issues: [.permissionDenied(url.path)])
+            }
+            return TokenUsageFileResult(samples: [], issues: [.unreadableSource(url.path, error.localizedDescription)])
+        }
+    }
+
+    private func parseJSONLinesOrLog(
+        url: URL,
+        sourceURL: URL,
+        fallbackDate: Date,
+        startOffset: UInt64 = 0,
+        initialLineNumber: Int = 0,
+        initialProject: ProjectMetadata? = nil
+    ) throws -> TokenUsageFileResult {
         let handle = try FileHandle(forReadingFrom: url)
         defer {
             try? handle.close()
+        }
+        if startOffset > 0 {
+            try handle.seek(toOffset: startOffset)
         }
 
         var samples: [TokenUsageSample] = []
@@ -103,15 +181,22 @@ public final class TokenUsageParser: @unchecked Sendable {
         let sessionMetaNeedle = Data(#""session_meta""#.utf8)
         let environmentContextNeedle = Data(#""environment_context""#.utf8)
         let onlyTokenCountLines = sourceURL.path.contains("/.codex/sessions/")
-        var currentProject: ProjectMetadata?
+        var currentProject: ProjectMetadata? = initialProject
         var pending = Data()
-        var lineNumber = 0
+        var lineNumber = initialLineNumber
 
         while let chunk = try handle.read(upToCount: 64 * 1024), !chunk.isEmpty {
             pending.append(chunk)
             while let range = pending.firstRange(of: newline) {
                 guard samples.count < maxSamplesPerFile else {
-                    return TokenUsageFileResult(samples: samples, issues: [])
+                    return TokenUsageFileResult(
+                        samples: samples,
+                        issues: [],
+                        parsedBytes: sourceSize(sourceURL),
+                        parsedLineCount: lineNumber,
+                        projectID: currentProject?.id,
+                        projectName: currentProject?.name
+                    )
                 }
                 let lineData = pending.subdata(in: pending.startIndex..<range.lowerBound)
                 pending.removeSubrange(pending.startIndex..<range.upperBound)
@@ -167,7 +252,14 @@ public final class TokenUsageParser: @unchecked Sendable {
                 issues.append(sawMalformedJSONLine ? .invalidJSON(sourceURL.path) : .apiUsageFieldsUnavailable(sourceURL.path))
             }
         }
-        return TokenUsageFileResult(samples: samples, issues: issues)
+        return TokenUsageFileResult(
+            samples: samples,
+            issues: issues,
+            parsedBytes: sourceSize(sourceURL),
+            parsedLineCount: lineNumber,
+            projectID: currentProject?.id,
+            projectName: currentProject?.name
+        )
     }
 
     private func parseJSONLinesOrLog(data: Data, sourceURL: URL, fallbackDate: Date) -> TokenUsageFileResult {
@@ -200,7 +292,14 @@ public final class TokenUsageParser: @unchecked Sendable {
         if samples.isEmpty {
             issues.append(sawMalformedJSONLine ? .invalidJSON(sourceURL.path) : .apiUsageFieldsUnavailable(sourceURL.path))
         }
-        return TokenUsageFileResult(samples: samples, issues: issues)
+        return TokenUsageFileResult(
+            samples: samples,
+            issues: issues,
+            parsedBytes: UInt64(data.count),
+            parsedLineCount: text.split(whereSeparator: \.isNewline).count,
+            projectID: currentProject?.id,
+            projectName: currentProject?.name
+        )
     }
 
     private func processLineData(

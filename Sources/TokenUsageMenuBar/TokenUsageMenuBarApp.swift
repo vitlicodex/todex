@@ -26,13 +26,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 final class TokenStatusController: NSObject, NSWindowDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let worker = TokenRefreshWorker()
+    private let permissionWorker = PermissionRefreshWorker()
     private let launchAtLogin = LaunchAtLoginController()
     private let settingsStore = MonitorSettingsStore()
     private let keyStore = APIKeyStore()
-    private let permissionMonitor = CodexPermissionMonitor()
     private let helpWindowController = HelpWindowController()
     private var timer: Timer?
     private var refreshInFlight = false
+    private var permissionRefreshInFlight = false
     private var statistics: TokenUsageStatistics = .empty
     private var permissionSnapshot: CodexPermissionSnapshot = .disabled
     private var lastPermissionSignature: String?
@@ -53,7 +54,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
     func start() {
         settings = settingsStore.load()
         launchAtLogin.cleanupLegacyLogs()
-        refreshPermissions(logChanges: false, force: true)
+        permissionSnapshot = pendingPermissionSnapshot()
         if let button = statusItem.button {
             button.title = "TOK"
             button.image = nil
@@ -68,6 +69,8 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         updateButton()
         rebuildMenu()
         showStartupWindow()
+        loadCachedStatistics()
+        refreshPermissionsAsync(logChanges: false, force: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             self?.refresh()
         }
@@ -100,20 +103,54 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         refreshInFlight = true
         AppDebugLogger.log(force ? "refresh queued force=true" : "refresh queued")
 
+        let currentSettings = settings
+        let currentAPIKey = unlockedAPIKey
+        let worker = worker
+        let shouldShowLocalBeforeAPI = currentSettings.isEnabled(.apiUsageSource)
+            && currentSettings.isEnabled(.localFallback)
+            && currentAPIKey != nil
+
         Task(priority: force ? .userInitiated : .utility) { [weak self] in
-            guard let self else { return }
-            let nextStatistics = await self.worker.refresh(
-                settings: self.settings,
-                apiKey: self.unlockedAPIKey,
+            if shouldShowLocalBeforeAPI {
+                let localStatistics = await worker.localRefresh(force: force)
+                await MainActor.run {
+                    guard let self, self.refreshInFlight else { return }
+                    self.statistics = localStatistics
+                    self.updateButton()
+                    self.rebuildMenu()
+                    AppDebugLogger.log("local fallback rendered before api refresh tokens=\(localStatistics.sessionTokens) requests=\(localStatistics.requestCount)")
+                }
+            }
+
+            let nextStatistics = await worker.refresh(
+                settings: currentSettings,
+                apiKey: currentAPIKey,
                 force: force
             )
-            self.statistics = nextStatistics
-            self.refreshPermissions(logChanges: true, force: force)
-            self.refreshInFlight = false
-            self.updateButton()
-            self.rebuildMenu()
-            let issueText = nextStatistics.issues.map(\.message).joined(separator: " | ")
-            AppDebugLogger.log("refresh finished tokens=\(nextStatistics.sessionTokens) requests=\(nextStatistics.requestCount) issues=\(nextStatistics.issues.count) \(issueText)")
+            await MainActor.run {
+                guard let self else { return }
+                self.statistics = nextStatistics
+                self.refreshInFlight = false
+                self.updateButton()
+                self.rebuildMenu()
+                self.refreshPermissionsAsync(logChanges: true, force: force)
+                let issueText = nextStatistics.issues.map(\.message).joined(separator: " | ")
+                AppDebugLogger.log("refresh finished tokens=\(nextStatistics.sessionTokens) requests=\(nextStatistics.requestCount) issues=\(nextStatistics.issues.count) \(issueText)")
+            }
+        }
+    }
+
+    private func loadCachedStatistics() {
+        let worker = worker
+        Task(priority: .utility) { [weak self] in
+            let cachedStatistics = await worker.cachedLocalStatistics()
+            await MainActor.run {
+                guard let self, !self.refreshInFlight else { return }
+                self.statistics = cachedStatistics
+                self.updateButton()
+                self.rebuildMenu()
+                AppDebugLogger.log("cached statistics rendered tokens=\(cachedStatistics.sessionTokens) requests=\(cachedStatistics.requestCount)")
+            }
         }
     }
 
@@ -599,18 +636,17 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
     }
 
     @objc private func refreshPermissionsNow() {
-        refreshPermissions(logChanges: true, force: true)
-        updateButton()
-        rebuildMenu()
+        refreshPermissionsAsync(logChanges: true, force: true)
     }
 
     @objc private func togglePermissionMonitoring() {
         settings.toggle(.codexPermissionMonitoring)
+        permissionSnapshot = pendingPermissionSnapshot()
         do {
             try settingsStore.save(settings)
-            refreshPermissions(logChanges: false, force: true)
             updateButton()
             rebuildMenu()
+            refreshPermissionsAsync(logChanges: false, force: true)
         } catch {
             showError(error.localizedDescription)
         }
@@ -652,18 +688,21 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
     }
 
     private func savePermissionPolicyAndRefresh() {
+        permissionSnapshot = pendingPermissionSnapshot()
         do {
             try settingsStore.save(settings)
-            refreshPermissions(logChanges: true, force: true)
             updateButton()
             rebuildMenu()
+            refreshPermissionsAsync(logChanges: true, force: true)
         } catch {
             showError(error.localizedDescription)
         }
     }
 
     @objc private func openCodexConfig() {
-        let url = permissionMonitor.configURL()
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex", isDirectory: true)
+            .appendingPathComponent("config.toml")
         guard FileManager.default.fileExists(atPath: url.path) else {
             showError("Codex config.toml was not found.")
             return
@@ -981,8 +1020,21 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         String(format: "%.0f", value)
     }
 
-    private func refreshPermissions(logChanges: Bool, force: Bool = false) {
+    private func pendingPermissionSnapshot() -> CodexPermissionSnapshot {
+        guard settings.isEnabled(.codexPermissionMonitoring) else {
+            return .disabled
+        }
+
+        return CodexPermissionSnapshot(
+            monitoringEnabled: true,
+            status: .ok,
+            statusReason: "Permission scan is running in the background."
+        )
+    }
+
+    private func refreshPermissionsAsync(logChanges: Bool, force: Bool = false) {
         let now = Date()
+        guard !permissionRefreshInFlight else { return }
         if !force,
            let lastPermissionRefreshAt,
            now.timeIntervalSince(lastPermissionRefreshAt) < permissionRefreshThrottleSeconds {
@@ -990,12 +1042,29 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         }
 
         lastPermissionRefreshAt = now
-        permissionSnapshot = permissionMonitor.snapshot(settings: settings)
-        let signature = permissionSignature(permissionSnapshot)
+        permissionRefreshInFlight = true
+
+        let currentSettings = settings
+        let worker = permissionWorker
+        Task(priority: force ? .userInitiated : .utility) { [weak self] in
+            let snapshot = await worker.snapshot(settings: currentSettings)
+            await MainActor.run {
+                guard let self else { return }
+                self.permissionRefreshInFlight = false
+                self.applyPermissionSnapshot(snapshot, logChanges: logChanges)
+                self.updateButton()
+                self.rebuildMenu()
+            }
+        }
+    }
+
+    private func applyPermissionSnapshot(_ snapshot: CodexPermissionSnapshot, logChanges: Bool) {
+        permissionSnapshot = snapshot
+        let signature = permissionSignature(snapshot)
         if lastPermissionSignature == nil {
-            AppDebugLogger.log("codex permissions status=\(permissionStatusLabel(permissionSnapshot.status)) monitoring=\(permissionSnapshot.monitoringEnabled ? "on" : "off") approval=\(permissionSnapshot.approvalPolicy ?? "unknown") sandbox=\(permissionSnapshot.sandboxPolicy ?? "unknown") filesystem=\(permissionSnapshot.fileSystemPolicy ?? "unknown") network=\(networkText(permissionSnapshot.networkAccess))")
+            AppDebugLogger.log("codex permissions status=\(permissionStatusLabel(snapshot.status)) monitoring=\(snapshot.monitoringEnabled ? "on" : "off") approval=\(snapshot.approvalPolicy ?? "unknown") sandbox=\(snapshot.sandboxPolicy ?? "unknown") filesystem=\(snapshot.fileSystemPolicy ?? "unknown") network=\(networkText(snapshot.networkAccess))")
         } else if logChanges, let lastPermissionSignature, lastPermissionSignature != signature {
-            AppDebugLogger.log("codex permissions changed status=\(permissionStatusLabel(permissionSnapshot.status)) approval=\(permissionSnapshot.approvalPolicy ?? "unknown") sandbox=\(permissionSnapshot.sandboxPolicy ?? "unknown") filesystem=\(permissionSnapshot.fileSystemPolicy ?? "unknown") network=\(networkText(permissionSnapshot.networkAccess))")
+            AppDebugLogger.log("codex permissions changed status=\(permissionStatusLabel(snapshot.status)) approval=\(snapshot.approvalPolicy ?? "unknown") sandbox=\(snapshot.sandboxPolicy ?? "unknown") filesystem=\(snapshot.fileSystemPolicy ?? "unknown") network=\(networkText(snapshot.networkAccess))")
         }
         lastPermissionSignature = signature
     }
@@ -1334,11 +1403,31 @@ private struct APICacheEntry {
     var statistics: TokenUsageStatistics
 }
 
+actor PermissionRefreshWorker {
+    private let monitor = CodexPermissionMonitor()
+
+    func snapshot(settings: MonitorSettings) -> CodexPermissionSnapshot {
+        monitor.snapshot(settings: settings)
+    }
+}
+
 actor TokenRefreshWorker {
     private let localEngine = TokenUsageEngine()
     private let apiClient = OpenAIUsageClient()
     private var lastStatistics: TokenUsageStatistics = .empty
     private var apiCache: APICacheEntry?
+
+    func localRefresh(force: Bool = false) -> TokenUsageStatistics {
+        let statistics = localEngine.refresh(force: force)
+        lastStatistics = statistics
+        return statistics
+    }
+
+    func cachedLocalStatistics() -> TokenUsageStatistics {
+        let statistics = localEngine.cachedStatistics()
+        lastStatistics = statistics
+        return statistics
+    }
 
     func refresh(settings: MonitorSettings, apiKey: String?, force: Bool = false) async -> TokenUsageStatistics {
         if settings.isEnabled(.apiUsageSource) {

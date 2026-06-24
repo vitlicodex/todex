@@ -1,21 +1,65 @@
 import Foundation
 
+public struct FileScanCursor: Codable, Equatable, Sendable {
+    public var offset: UInt64
+    public var lineCount: Int
+    public var projectID: String?
+    public var projectName: String?
+
+    public init(
+        offset: UInt64,
+        lineCount: Int = 0,
+        projectID: String? = nil,
+        projectName: String? = nil
+    ) {
+        self.offset = offset
+        self.lineCount = lineCount
+        self.projectID = projectID
+        self.projectName = projectName
+    }
+}
+
 public struct TokenUsageState: Codable, Equatable, Sendable {
     public var sessionStartedAt: Date
     public var samples: [TokenUsageSample]
     public var seenSampleIDs: Set<String>
     public var hasExplicitSessionReset: Bool?
+    public var sourceFingerprints: [String: FileFingerprint]
+    public var sourceCursors: [String: FileScanCursor]
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionStartedAt
+        case samples
+        case seenSampleIDs
+        case hasExplicitSessionReset
+        case sourceFingerprints
+        case sourceCursors
+    }
 
     public init(
         sessionStartedAt: Date = Date(),
         samples: [TokenUsageSample] = [],
         seenSampleIDs: Set<String> = [],
-        hasExplicitSessionReset: Bool? = nil
+        hasExplicitSessionReset: Bool? = nil,
+        sourceFingerprints: [String: FileFingerprint] = [:],
+        sourceCursors: [String: FileScanCursor] = [:]
     ) {
         self.sessionStartedAt = sessionStartedAt
         self.samples = samples
         self.seenSampleIDs = seenSampleIDs
         self.hasExplicitSessionReset = hasExplicitSessionReset
+        self.sourceFingerprints = sourceFingerprints
+        self.sourceCursors = sourceCursors
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sessionStartedAt = try container.decode(Date.self, forKey: .sessionStartedAt)
+        samples = try container.decodeIfPresent([TokenUsageSample].self, forKey: .samples) ?? []
+        seenSampleIDs = try container.decodeIfPresent(Set<String>.self, forKey: .seenSampleIDs) ?? []
+        hasExplicitSessionReset = try container.decodeIfPresent(Bool.self, forKey: .hasExplicitSessionReset)
+        sourceFingerprints = try container.decodeIfPresent([String: FileFingerprint].self, forKey: .sourceFingerprints) ?? [:]
+        sourceCursors = try container.decodeIfPresent([String: FileScanCursor].self, forKey: .sourceCursors) ?? [:]
     }
 }
 
@@ -101,6 +145,22 @@ public final class TokenUsageStore: @unchecked Sendable {
         try save()
     }
 
+    public func updateSourceFingerprints(_ fingerprints: [String: FileFingerprint]) throws {
+        guard state.sourceFingerprints != fingerprints else { return }
+        state.sourceFingerprints = fingerprints
+        try save()
+    }
+
+    public func updateSourceMetadata(
+        fingerprints: [String: FileFingerprint],
+        cursors: [String: FileScanCursor]
+    ) throws {
+        guard state.sourceFingerprints != fingerprints || state.sourceCursors != cursors else { return }
+        state.sourceFingerprints = fingerprints
+        state.sourceCursors = cursors
+        try save()
+    }
+
     public func resetSession(at date: Date = Date()) throws {
         state.sessionStartedAt = date
         state.hasExplicitSessionReset = true
@@ -112,7 +172,9 @@ public final class TokenUsageStore: @unchecked Sendable {
             sessionStartedAt: sessionStartedAt,
             samples: [],
             seenSampleIDs: Set(sampleIDs),
-            hasExplicitSessionReset: true
+            hasExplicitSessionReset: true,
+            sourceFingerprints: state.sourceFingerprints,
+            sourceCursors: state.sourceCursors
         )
         try save()
     }

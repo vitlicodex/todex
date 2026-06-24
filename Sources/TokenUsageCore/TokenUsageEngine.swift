@@ -1,6 +1,6 @@
 import Foundation
 
-public struct FileFingerprint: Equatable, Sendable {
+public struct FileFingerprint: Codable, Equatable, Sendable {
     public var size: UInt64
     public var modifiedAt: Date
 }
@@ -10,6 +10,7 @@ public final class TokenUsageEngine: @unchecked Sendable {
     private let parser: TokenUsageParser
     private var discovery: TokenSourceDiscovery
     private var fingerprints: [String: FileFingerprint] = [:]
+    private var sourceCursors: [String: FileScanCursor] = [:]
     private var cachedSources: [URL] = []
     private var lastDiscoveryAt: Date?
     private let discoveryCacheInterval: TimeInterval = 15
@@ -24,6 +25,8 @@ public final class TokenUsageEngine: @unchecked Sendable {
         self.store = store
         self.parser = parser
         self.discovery = discovery
+        self.fingerprints = store.state.sourceFingerprints
+        self.sourceCursors = store.state.sourceCursors
     }
 
     @discardableResult
@@ -41,20 +44,26 @@ public final class TokenUsageEngine: @unchecked Sendable {
         var importedSamples: [TokenUsageSample] = []
         var noUsageIssues: [TokenMonitorIssue] = []
 
+        if activeSourceURL == nil {
+            activeSourceURL = sources.first
+        }
+
         for source in sources {
             guard let fingerprint = fingerprint(for: source) else {
                 issues.append(.tokenUsageFileMissing(source.path))
                 continue
             }
 
-            if fingerprints[source.path] == fingerprint {
+            let previousFingerprint = fingerprints[source.path]
+            if previousFingerprint == fingerprint {
                 continue
             }
 
             parsedAnySource = true
-            fingerprints[source.path] = fingerprint
-
-            let result = parser.parse(url: source)
+            let result = parse(source: source, fingerprint: fingerprint, previousFingerprint: previousFingerprint)
+            let finalFingerprint = self.fingerprint(for: source) ?? fingerprint
+            fingerprints[source.path] = finalFingerprint
+            updateCursor(for: source, fingerprint: finalFingerprint, result: result)
             for issue in result.issues {
                 if case .apiUsageFieldsUnavailable = issue {
                     noUsageIssues.append(issue)
@@ -67,6 +76,7 @@ public final class TokenUsageEngine: @unchecked Sendable {
 
         do {
             _ = try store.add(importedSamples)
+            try store.updateSourceMetadata(fingerprints: fingerprints, cursors: sourceCursors)
             updateActiveSource(from: importedSamples)
         } catch {
             issues.append(.unreadableSource(store.stateURL.path, error.localizedDescription))
@@ -91,9 +101,32 @@ public final class TokenUsageEngine: @unchecked Sendable {
 
     public func resetAllWithCurrentSourcesAsBaseline() throws -> TokenUsageStatistics {
         let sources = discoveredSources(force: true)
-        let baselineIDs = sources.flatMap { parser.parse(url: $0).samples.map(\.id) }
+        var baselineIDs: [String] = []
+        var baselineFingerprints: [String: FileFingerprint] = [:]
+        var baselineCursors: [String: FileScanCursor] = [:]
+        baselineIDs.reserveCapacity(sources.count)
+
+        for source in sources {
+            if let fingerprint = fingerprint(for: source) {
+                baselineFingerprints[source.path] = fingerprint
+            }
+            let result = parser.parse(url: source)
+            if let fingerprint = self.fingerprint(for: source) ?? baselineFingerprints[source.path] {
+                baselineFingerprints[source.path] = fingerprint
+                baselineCursors[source.path] = FileScanCursor(
+                    offset: min(result.parsedBytes ?? fingerprint.size, fingerprint.size),
+                    lineCount: result.parsedLineCount ?? 0,
+                    projectID: result.projectID,
+                    projectName: result.projectName
+                )
+            }
+            baselineIDs.append(contentsOf: result.samples.map(\.id))
+        }
+
         try store.resetAll(markSeen: baselineIDs)
-        fingerprints.removeAll()
+        fingerprints = baselineFingerprints
+        sourceCursors = baselineCursors
+        try store.updateSourceMetadata(fingerprints: fingerprints, cursors: sourceCursors)
         cachedSources = sources
         lastDiscoveryAt = Date()
         activeSourceURL = sources.first
@@ -103,6 +136,10 @@ public final class TokenUsageEngine: @unchecked Sendable {
 
     public func report() -> TokenUsageReport {
         store.report(activeSourcePath: activeSourceURL?.path, issues: lastIssues)
+    }
+
+    public func cachedStatistics() -> TokenUsageStatistics {
+        store.statistics(activeSourcePath: activeSourceURL?.path, issues: lastIssues)
     }
 
     public func writeReportJSON(to destinationURL: URL) throws {
@@ -200,6 +237,77 @@ public final class TokenUsageEngine: @unchecked Sendable {
         cachedSources = sources
         lastDiscoveryAt = now
         return sources
+    }
+
+    private func parse(
+        source: URL,
+        fingerprint: FileFingerprint,
+        previousFingerprint: FileFingerprint?
+    ) -> TokenUsageFileResult {
+        guard shouldParseIncrementally(
+            source: source,
+            fingerprint: fingerprint,
+            previousFingerprint: previousFingerprint
+        ),
+              let cursor = sourceCursors[source.path] else {
+            return parser.parse(url: source)
+        }
+
+        return parser.parse(
+            url: source,
+            fromOffset: cursor.offset,
+            lineNumber: cursor.lineCount,
+            projectID: cursor.projectID,
+            projectName: cursor.projectName
+        )
+    }
+
+    private func shouldParseIncrementally(
+        source: URL,
+        fingerprint: FileFingerprint,
+        previousFingerprint: FileFingerprint?
+    ) -> Bool {
+        let extensionName = source.pathExtension.lowercased()
+        guard extensionName == "jsonl" || extensionName == "log" else {
+            return false
+        }
+        guard let previousFingerprint,
+              let cursor = sourceCursors[source.path],
+              cursor.offset > 0,
+              cursor.offset <= previousFingerprint.size,
+              previousFingerprint.size <= fingerprint.size,
+              cursor.offset < fingerprint.size else {
+            return false
+        }
+        return true
+    }
+
+    private func updateCursor(
+        for source: URL,
+        fingerprint: FileFingerprint,
+        result: TokenUsageFileResult
+    ) {
+        guard shouldAdvanceCursor(for: result) else { return }
+        let previous = sourceCursors[source.path]
+        let parsedBytes = min(result.parsedBytes ?? fingerprint.size, fingerprint.size)
+        sourceCursors[source.path] = FileScanCursor(
+            offset: parsedBytes,
+            lineCount: result.parsedLineCount ?? previous?.lineCount ?? 0,
+            projectID: result.projectID ?? previous?.projectID,
+            projectName: result.projectName ?? previous?.projectName
+        )
+    }
+
+    private func shouldAdvanceCursor(for result: TokenUsageFileResult) -> Bool {
+        for issue in result.issues {
+            switch issue {
+            case .invalidJSON, .permissionDenied, .unreadableSource:
+                return false
+            default:
+                continue
+            }
+        }
+        return true
     }
 
     private func updateActiveSource(from samples: [TokenUsageSample]) {
