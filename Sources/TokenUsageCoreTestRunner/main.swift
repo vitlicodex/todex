@@ -362,11 +362,13 @@ private func testUIDisplayModelCoversHeaderMenuAndCalendarData() throws {
     expectEqual(weekDisplay.calendar.days.count, 7, "Week calendar should render seven days.")
     let weekToday = weekDisplay.calendar.days.first { $0.isToday }
     expectEqual(weekToday?.totalTokens, 175, "Week calendar should mark today's token usage.")
+    expectEqual(weekToday?.isPeakUsageDay, true, "Week calendar should mark the highest token day as the peak day.")
 
     expectEqual(monthDisplay.calendar.scope, .month, "Month calendar display should use month scope.")
     expectEqual(monthDisplay.calendar.days.count, 42, "Month calendar should render a stable six-week grid.")
     let monthToday = monthDisplay.calendar.days.first { $0.isToday }
     expectEqual(monthToday?.totalTokens, 175, "Month calendar should mark today's token usage.")
+    expectEqual(monthToday?.isPeakUsageDay, true, "Month calendar should mark the highest token day as the peak day.")
     expect(monthDisplay.calendar.days.contains { !$0.isCurrentMonth }, "Month calendar should include leading or trailing non-month days for grid alignment.")
 }
 

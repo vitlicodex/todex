@@ -10,6 +10,8 @@ final class UsageCalendarMenuView: NSView {
     private let calendar = Calendar.current
     private static let viewWidth: CGFloat = 372
     private static let viewHeight: CGFloat = 254
+    private static let usageGreen = NSColor(calibratedRed: 0.30, green: 0.92, blue: 0.48, alpha: 1)
+    private static let peakGold = NSColor(calibratedRed: 1.0, green: 0.76, blue: 0.24, alpha: 1)
 
     init(
         statistics: TokenUsageStatistics,
@@ -99,7 +101,7 @@ final class UsageCalendarMenuView: NSView {
 
         for (index, day) in display.days.enumerated() {
             let x = grid.minX + CGFloat(index) * cellWidth
-            let cell = NSRect(x: x + 3, y: grid.minY, width: cellWidth - 6, height: grid.height)
+            let cell = NSRect(x: x + 4, y: grid.minY + 2, width: cellWidth - 8, height: grid.height - 4)
             drawDayCell(day: day, maxTokens: display.maxTokens, rect: cell, showWeekday: true)
         }
     }
@@ -127,7 +129,7 @@ final class UsageCalendarMenuView: NSView {
             let row = index / 7
             let x = grid.minX + CGFloat(column) * cellWidth
             let y = grid.maxY - CGFloat(row + 1) * cellHeight
-            let cell = NSRect(x: x + 3, y: y + 3, width: cellWidth - 6, height: cellHeight - 6)
+            let cell = NSRect(x: x + 4, y: y + 4, width: cellWidth - 8, height: cellHeight - 8)
             drawDayCell(
                 day: day,
                 maxTokens: display.maxTokens,
@@ -144,26 +146,38 @@ final class UsageCalendarMenuView: NSView {
         showWeekday: Bool
     ) {
         let intensity = day.hasUsage ? max(0.18, min(0.82, Double(day.totalTokens) / Double(maxTokens))) : 0
-        let fill: NSColor
+        let path = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
+
         if day.hasUsage {
-            fill = NSColor.systemBlue.withAlphaComponent(0.20 + intensity * 0.42)
-        } else {
-            fill = NSColor.white.withAlphaComponent(day.isCurrentMonth ? 0.045 : 0.018)
+            Self.usageGreen.withAlphaComponent(0.13 + intensity * 0.24).setFill()
+            path.fill()
         }
 
-        let path = NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7)
-        fill.setFill()
-        path.fill()
-        (day.isToday ? NSColor.systemBlue.withAlphaComponent(0.78) : NSColor.white.withAlphaComponent(0.06)).setStroke()
-        path.lineWidth = day.isToday ? 1.2 : 1
+        let stroke: NSColor
+        if day.isPeakUsageDay {
+            stroke = Self.peakGold.withAlphaComponent(0.74)
+        } else if day.isToday {
+            stroke = Self.usageGreen.withAlphaComponent(0.70)
+        } else if day.hasUsage {
+            stroke = Self.usageGreen.withAlphaComponent(0.28)
+        } else {
+            stroke = NSColor.white.withAlphaComponent(day.isCurrentMonth ? 0.045 : 0.020)
+        }
+        stroke.setStroke()
+        path.lineWidth = day.isToday || day.isPeakUsageDay ? 1.2 : 1
         path.stroke()
 
-        let primaryColor = NSColor.white.withAlphaComponent(day.isCurrentMonth ? 0.86 : 0.26)
+        let primaryColor = day.hasUsage
+            ? NSColor.white.withAlphaComponent(day.isCurrentMonth ? 0.88 : 0.32)
+            : NSColor.white.withAlphaComponent(day.isCurrentMonth ? 0.42 : 0.18)
         let secondaryColor = day.hasUsage
-            ? NSColor.white.withAlphaComponent(day.isCurrentMonth ? 0.74 : 0.30)
-            : NSColor.white.withAlphaComponent(day.isCurrentMonth ? 0.34 : 0.18)
+            ? Self.usageGreen.withAlphaComponent(day.isCurrentMonth ? 0.94 : 0.42)
+            : NSColor.white.withAlphaComponent(day.isCurrentMonth ? 0.24 : 0.12)
 
         if showWeekday {
+            if day.isPeakUsageDay {
+                drawPeakMarker(in: NSRect(x: rect.maxX - 18, y: rect.maxY - 18, width: 12, height: 12))
+            }
             drawText(
                 day.weekday,
                 rect: NSRect(x: rect.minX + 5, y: rect.maxY - 18, width: rect.width - 10, height: 12),
@@ -181,20 +195,25 @@ final class UsageCalendarMenuView: NSView {
                 alignment: .center,
                 monospacedDigits: true
             )
-            drawText(
-                day.hasUsage ? TokenUsageUIDisplay.compact(day.totalTokens) : "0",
-                rect: NSRect(x: rect.minX + 4, y: rect.minY + 8, width: rect.width - 8, height: 13),
-                size: 9,
-                weight: .medium,
-                color: secondaryColor,
-                alignment: .center,
-                monospacedDigits: true
-            )
+            if day.hasUsage {
+                drawText(
+                    calendarTokenText(day.totalTokens),
+                    rect: NSRect(x: rect.minX + 4, y: rect.minY + 8, width: rect.width - 8, height: 13),
+                    size: 9,
+                    weight: .semibold,
+                    color: secondaryColor,
+                    alignment: .center,
+                    monospacedDigits: true
+                )
+            }
         } else {
+            if day.isPeakUsageDay {
+                drawPeakMarker(in: NSRect(x: rect.maxX - 15, y: rect.maxY - 14, width: 10, height: 10))
+            }
             drawText(
                 "\(day.dayNumber)",
-                rect: NSRect(x: rect.minX + 4, y: rect.maxY - 17, width: rect.width - 8, height: 12),
-                size: 9,
+                rect: NSRect(x: rect.minX + 4, y: rect.maxY - 15, width: rect.width - 8, height: 11),
+                size: 8.5,
                 weight: day.isToday ? .bold : .medium,
                 color: primaryColor,
                 alignment: .center,
@@ -202,16 +221,46 @@ final class UsageCalendarMenuView: NSView {
             )
             if day.hasUsage {
                 drawText(
-                    TokenUsageUIDisplay.compact(day.totalTokens),
-                    rect: NSRect(x: rect.minX + 2, y: rect.minY + 4, width: rect.width - 4, height: 11),
-                    size: 7,
-                    weight: .medium,
+                    calendarTokenText(day.totalTokens),
+                    rect: NSRect(x: rect.minX + 2, y: rect.minY + 2, width: rect.width - 4, height: 10),
+                    size: 7.2,
+                    weight: .semibold,
                     color: secondaryColor,
                     alignment: .center,
                     monospacedDigits: true
                 )
             }
         }
+    }
+
+    private func drawPeakMarker(in rect: NSRect) {
+        if let crown = NSImage(systemSymbolName: "crown.fill", accessibilityDescription: "Peak usage")?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: rect.height, weight: .semibold)) {
+            crown.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 0.95)
+            return
+        }
+
+        drawText(
+            "*",
+            rect: rect,
+            size: rect.height,
+            weight: .bold,
+            color: Self.peakGold,
+            alignment: .center
+        )
+    }
+
+    private func calendarTokenText(_ value: Int) -> String {
+        if value >= 1_000_000_000 {
+            return String(format: "%.1fb", Double(value) / 1_000_000_000.0)
+        }
+        if value >= 1_000_000 {
+            return String(format: "%.0fm", Double(value) / 1_000_000.0)
+        }
+        if value >= 1_000 {
+            return String(format: "%.0fk", Double(value) / 1_000.0)
+        }
+        return "\(value)"
     }
 
     private func calendarDisplay() -> UsageCalendarDisplay {

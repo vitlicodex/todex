@@ -135,9 +135,14 @@ public struct UsageCalendarDisplay: Equatable, Sendable {
             self.title = Self.monthTitle(for: today, calendar: calendar)
         }
 
+        let dayTokenValues = days.map { day in
+            (day: day, totalTokens: summaries[day]?.totalTokens ?? 0)
+        }
+        let maxTokens = max(1, dayTokenValues.map(\.totalTokens).max() ?? 0)
+
         self.scope = scope
         self.subtitle = "\(TokenUsageUIDisplay.compact(statistics.currentMonthUsage.totalTokens)) month"
-        self.maxTokens = max(1, days.map { summaries[$0]?.totalTokens ?? 0 }.max() ?? 0)
+        self.maxTokens = maxTokens
         self.days = days.map { day in
             let summary = summaries[day] ?? UsagePeriodSummary(label: Self.dayLabel(for: day), requests: 0)
             let monthStart = calendar.dateInterval(of: .month, for: today)?.start ?? today
@@ -148,7 +153,8 @@ public struct UsageCalendarDisplay: Equatable, Sendable {
                 totalTokens: summary.totalTokens,
                 requests: summary.requests,
                 isToday: calendar.isDate(day, inSameDayAs: today),
-                isCurrentMonth: calendar.isDate(day, equalTo: monthStart, toGranularity: .month)
+                isCurrentMonth: calendar.isDate(day, equalTo: monthStart, toGranularity: .month),
+                isPeakUsageDay: summary.totalTokens > 0 && summary.totalTokens == maxTokens
             )
         }
     }
@@ -221,6 +227,7 @@ public struct UsageCalendarDay: Equatable, Sendable {
     public var requests: Int
     public var isToday: Bool
     public var isCurrentMonth: Bool
+    public var isPeakUsageDay: Bool
 
     public var hasUsage: Bool {
         totalTokens > 0
