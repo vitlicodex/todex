@@ -315,8 +315,6 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         item.view = TokenMenuHeaderView(
             statistics: statistics,
             permissionSnapshot: permissionSnapshot,
-            isAPIKeyUnlocked: unlockedAPIKey != nil,
-            hasStoredAPIKey: keyStore.hasStoredKey(),
             usageCalendarScope: usageCalendarScope
         ) { [weak self] scope in
             self?.usageCalendarScope = scope

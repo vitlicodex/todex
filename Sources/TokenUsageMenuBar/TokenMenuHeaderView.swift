@@ -5,8 +5,6 @@ import TokenUsageCore
 final class TokenMenuHeaderView: NSView {
     private let statistics: TokenUsageStatistics
     private let permissionSnapshot: CodexPermissionSnapshot
-    private let isAPIKeyUnlocked: Bool
-    private let hasStoredAPIKey: Bool
     private var usageCalendarScope: UsageCalendarScope
     private let onScopeChange: (UsageCalendarScope) -> Void
     private var calendarView: UsageCalendarMenuView?
@@ -21,15 +19,11 @@ final class TokenMenuHeaderView: NSView {
     init(
         statistics: TokenUsageStatistics,
         permissionSnapshot: CodexPermissionSnapshot,
-        isAPIKeyUnlocked: Bool,
-        hasStoredAPIKey: Bool,
         usageCalendarScope: UsageCalendarScope,
         onScopeChange: @escaping (UsageCalendarScope) -> Void
     ) {
         self.statistics = statistics
         self.permissionSnapshot = permissionSnapshot
-        self.isAPIKeyUnlocked = isAPIKeyUnlocked
-        self.hasStoredAPIKey = hasStoredAPIKey
         self.usageCalendarScope = usageCalendarScope
         self.onScopeChange = onScopeChange
         super.init(frame: NSRect(x: 0, y: 0, width: Self.viewWidth, height: 154))
@@ -53,8 +47,6 @@ final class TokenMenuHeaderView: NSView {
     required init?(coder: NSCoder) {
         self.statistics = .empty
         self.permissionSnapshot = .disabled
-        self.isAPIKeyUnlocked = false
-        self.hasStoredAPIKey = false
         self.usageCalendarScope = .week
         self.onScopeChange = { _ in }
         super.init(coder: coder)
@@ -150,11 +142,6 @@ final class TokenMenuHeaderView: NSView {
             text: display.statusBadgeText,
             color: color,
             rect: NSRect(x: rect.maxX - 94, y: rect.maxY - 48, width: 74, height: 23)
-        )
-        drawBadge(
-            text: isAPIKeyUnlocked ? "KEY" : (hasStoredAPIKey ? "LOCK" : "LOCAL"),
-            color: isAPIKeyUnlocked ? .systemBlue : .systemGray,
-            rect: NSRect(x: rect.maxX - 94, y: rect.maxY - 78, width: 74, height: 23)
         )
     }
 
