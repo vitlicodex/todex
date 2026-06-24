@@ -24,6 +24,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Security
 
 - Vault file ownership, permissions, and symlink validation.
+- Private state/report writes now reject symlink destinations and overly broad permissions.
 - Parser limits for large or deeply nested local files.
+- Codex session parser skips non-token lines before UTF-8 decoding.
 - Secret redaction for logs and API error bodies.
 - Private file permissions for stored state, settings, reports, and logs.

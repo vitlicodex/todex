@@ -18,6 +18,15 @@ private func expectEqual<T: Equatable>(_ actual: T, _ expected: T, _ message: St
     }
 }
 
+private func expectThrows(_ message: String, _ operation: () throws -> Void) {
+    do {
+        try operation()
+        failures.append(message)
+    } catch {
+        // Expected failure.
+    }
+}
+
 private func temporaryDirectory() throws -> URL {
     let url = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("CodexTokenMenuBarTests-\(UUID().uuidString)", isDirectory: true)
@@ -110,6 +119,28 @@ private func testStreamingCodexSessionParserSkipsPromptLines() throws {
     expectEqual(result.samples.first?.totalTokens, 15, "Codex session stream should parse token_count total.")
 }
 
+private func testStreamingCodexSessionParserSkipsInvalidNonTokenLines() throws {
+    let temp = try temporaryDirectory()
+    let sessions = temp
+        .appendingPathComponent(".codex", isDirectory: true)
+        .appendingPathComponent("sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+    let url = sessions.appendingPathComponent("rollout.jsonl")
+    var data = Data([0xff, 0xfe, 0xfd, 0x0a])
+    data.append(
+        """
+        {"timestamp":"2026-06-23T10:00:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":9,"output_tokens":1,"total_tokens":10}}}}
+        """.data(using: .utf8)!
+    )
+    try data.write(to: url)
+
+    let result = TokenUsageParser().parse(url: url)
+
+    expect(result.issues.isEmpty, "Codex session stream should ignore invalid private non-token lines.")
+    expectEqual(result.samples.count, 1, "Codex session stream should still parse the token_count line.")
+    expectEqual(result.samples.first?.totalTokens, 10, "Codex session stream should parse token_count after skipped invalid line.")
+}
+
 private func testCodexSessionParserAttachesProjectMetadata() throws {
     let temp = try temporaryDirectory()
     let project = temp.appendingPathComponent("alpha", isDirectory: true)
@@ -196,6 +227,30 @@ private func testStoreAggregatesSessionAndTotalStatistics() throws {
     expectEqual(stats.peakPromptCost, 150, "Peak prompt cost should match current sample.")
 }
 
+private func testStoreEnrichesExistingSampleProjectMetadata() throws {
+    let temp = try temporaryDirectory()
+    let store = TokenUsageStore(stateURL: temp.appendingPathComponent("stats.json"))
+    let timestamp = Date()
+    let original = sample(id: "same", timestamp: timestamp, input: 10, output: 2)
+    let enriched = sample(
+        id: "same",
+        timestamp: timestamp,
+        input: 10,
+        output: 2,
+        projectID: "project-alpha",
+        projectName: "alpha"
+    )
+
+    let firstImportCount = try store.add([original])
+    let secondImportCount = try store.add([enriched])
+
+    expectEqual(firstImportCount, 1, "First store import should add the sample.")
+    expectEqual(secondImportCount, 0, "Project enrichment should not count as a new sample.")
+    expectEqual(store.state.samples.count, 1, "Project enrichment should not duplicate the sample.")
+    expectEqual(store.state.samples.first?.projectName, "alpha", "Project enrichment should update project name.")
+    expectEqual(store.state.samples.first?.projectID, "project-alpha", "Project enrichment should update project id.")
+}
+
 private func testStorePersistsDailyHistoryAndProjectBreakdown() throws {
     let temp = try temporaryDirectory()
     let store = TokenUsageStore(stateURL: temp.appendingPathComponent("stats.json"))
@@ -223,6 +278,20 @@ private func testStorePersistsDailyHistoryAndProjectBreakdown() throws {
     expect(stats.recentDailyUsage.contains { $0.label == "Today" && $0.totalTokens == 175 }, "Recent daily usage should include today.")
 }
 
+private func testPrivateFileIORejectsSymlinkDestination() throws {
+    let temp = try temporaryDirectory()
+    let realFile = temp.appendingPathComponent("real.json")
+    let symlink = temp.appendingPathComponent("stats.json")
+    try Data("{}".utf8).write(to: realFile)
+    try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: realFile)
+
+    expectThrows("Private file writer should reject symlink destinations.") {
+        try PrivateFileIO.writePrivateData(Data("{}".utf8), to: symlink)
+    }
+    let realContents = try String(contentsOf: realFile, encoding: .utf8)
+    expectEqual(realContents, "{}", "Private file writer should not modify the symlink target.")
+}
+
 private func testParserRefusesOversizedStructuredJSONFile() throws {
     let temp = try temporaryDirectory()
     let url = temp.appendingPathComponent("usage.json")
@@ -243,11 +312,14 @@ private let tests: [(String, () throws -> Void)] = [
     ("OpenAI usage JSON parsing", testParsesOpenAIStyleUsageJSON),
     ("Codex token_count parsing", testCodexTokenCountUsesLastUsageOnly),
     ("Codex session prompt skipping", testStreamingCodexSessionParserSkipsPromptLines),
+    ("Codex invalid non-token line skipping", testStreamingCodexSessionParserSkipsInvalidNonTokenLines),
     ("Codex project metadata parsing", testCodexSessionParserAttachesProjectMetadata),
     ("Codex permission monitoring", testPermissionMonitorFlagsBroadPermissions),
     ("Permission presets", testPermissionPresetLevelsApplyExpectedRules),
     ("Usage store aggregation", testStoreAggregatesSessionAndTotalStatistics),
+    ("Usage store project enrichment", testStoreEnrichesExistingSampleProjectMetadata),
     ("Usage store daily history", testStorePersistsDailyHistoryAndProjectBreakdown),
+    ("Private file symlink refusal", testPrivateFileIORejectsSymlinkDestination),
     ("Oversized JSON refusal", testParserRefusesOversizedStructuredJSONFile)
 ]
 

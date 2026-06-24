@@ -56,9 +56,18 @@ public final class TokenUsageStore: @unchecked Sendable {
     @discardableResult
     public func add(_ samples: [TokenUsageSample]) throws -> Int {
         var enrichedExistingSamples = false
+        var sampleIndexByID: [String: Int]?
         for sample in samples where state.seenSampleIDs.contains(sample.id) {
             guard sample.projectID != nil || sample.projectName != nil else { continue }
-            guard let index = state.samples.firstIndex(where: { $0.id == sample.id }) else { continue }
+            if sampleIndexByID == nil {
+                var index: [String: Int] = [:]
+                index.reserveCapacity(state.samples.count)
+                for (offset, existingSample) in state.samples.enumerated() {
+                    index[existingSample.id] = offset
+                }
+                sampleIndexByID = index
+            }
+            guard let index = sampleIndexByID?[sample.id] else { continue }
 
             let existing = state.samples[index]
             let shouldEnrichProjectID = existing.projectID == nil && sample.projectID != nil

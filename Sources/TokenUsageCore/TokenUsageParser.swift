@@ -219,21 +219,39 @@ public final class TokenUsageParser: @unchecked Sendable {
         sawMalformedJSONLine: inout Bool,
         sawInvalidUTF8Line: inout Bool
     ) {
-        guard let line = String(data: lineData, encoding: .utf8) else {
-            sawInvalidUTF8Line = true
-            return
-        }
-
         if onlyTokenCountLines {
-            if lineData.range(of: turnContextNeedle) != nil
+            let hasProjectMetadata = lineData.range(of: turnContextNeedle) != nil
                 || lineData.range(of: sessionMetaNeedle) != nil
-                || lineData.range(of: environmentContextNeedle) != nil {
+                || lineData.range(of: environmentContextNeedle) != nil
+            let hasTokenCount = lineData.range(of: tokenCountNeedle) != nil
+            guard hasProjectMetadata || hasTokenCount else {
+                return
+            }
+            guard let line = String(data: lineData, encoding: .utf8) else {
+                sawInvalidUTF8Line = true
+                return
+            }
+            if hasProjectMetadata {
                 updateProjectMetadata(from: line, currentProject: &currentProject)
                 return
             }
-            guard lineData.range(of: tokenCountNeedle) != nil else {
-                return
-            }
+            processLine(
+                line,
+                lineNumber: lineNumber,
+                onlyTokenCountLines: true,
+                sourceURL: sourceURL,
+                sourceID: sourceID,
+                fallbackDate: fallbackDate,
+                currentProject: &currentProject,
+                samples: &samples,
+                sawMalformedJSONLine: &sawMalformedJSONLine
+            )
+            return
+        }
+
+        guard let line = String(data: lineData, encoding: .utf8) else {
+            sawInvalidUTF8Line = true
+            return
         }
 
         processLine(
