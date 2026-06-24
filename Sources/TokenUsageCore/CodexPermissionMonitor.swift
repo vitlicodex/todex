@@ -33,11 +33,7 @@ public final class CodexPermissionMonitor: @unchecked Sendable {
             .appendingPathComponent("config.toml")
         let config = parseConfig(url: configURL)
         let context = latestTurnContext()
-        var issues = config.issues + context.issues
-
-        if config.trustedWorkspaceCount == 0, config.exists {
-            issues.append("No trusted workspaces were found in Codex config.")
-        }
+        let issues = config.issues + context.issues
 
         let baseStatus = classify(
             approvalPolicy: context.approvalPolicy,
@@ -54,7 +50,7 @@ public final class CodexPermissionMonitor: @unchecked Sendable {
         let finalStatus = statusWithPolicy(baseStatus.status, violations: violations)
         let reason = violations.isEmpty
             ? baseStatus.reason
-            : "\(violations.count) disabled permission(s) active."
+            : "\(violations.count) active permission(s) violate the selected TODEX policy."
 
         return CodexPermissionSnapshot(
             monitoringEnabled: true,
@@ -94,12 +90,8 @@ public final class CodexPermissionMonitor: @unchecked Sendable {
             let text = try String(contentsOf: url, encoding: .utf8)
             let trustedCount = text
                 .split(whereSeparator: \.isNewline)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { line in
-                    line.hasPrefix("trust_level")
-                        && line.contains("=")
-                        && line.lowercased().contains("\"trusted\"")
-                }
+                .map(String.init)
+                .filter(isTrustedWorkspaceLine)
                 .count
             return ConfigSnapshot(
                 exists: true,
@@ -176,7 +168,7 @@ public final class CodexPermissionMonitor: @unchecked Sendable {
         }
 
         let newline = Data([0x0A])
-        let turnContextNeedle = Data(#""type":"turn_context""#.utf8)
+        let turnContextNeedle = Data("turn_context".utf8)
         var pending = Data()
         var latest: TurnContextSnapshot?
 
@@ -212,34 +204,39 @@ public final class CodexPermissionMonitor: @unchecked Sendable {
 
     private func parseTurnContextLine(_ data: Data, sourceURL: URL, needle: Data) -> TurnContextSnapshot? {
         guard data.range(of: needle) != nil,
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let payload = object["payload"] as? [String: Any] else {
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
+        let payload = object["payload"] as? [String: Any]
+        let topLevelType = stringValue(object["type"])?.lowercased()
+        let payloadType = stringValue(payload?["type"])?.lowercased()
+        guard topLevelType == "turn_context" || payloadType == "turn_context" else {
+            return nil
+        }
+        let context = payload ?? object
 
-        let sandboxPolicy = payload["sandbox_policy"] as? [String: Any]
-        let permissionProfile = payload["permission_profile"] as? [String: Any]
+        let sandboxPolicy = context["sandbox_policy"] as? [String: Any]
+        let permissionProfile = context["permission_profile"] as? [String: Any]
         let profileFileSystem = permissionProfile?["file_system"] as? [String: Any]
-        let fileSystemSandbox = payload["file_system_sandbox_policy"] as? [String: Any]
+        let fileSystemSandbox = context["file_system_sandbox_policy"] as? [String: Any]
 
         let timestamp = stringValue(object["timestamp"]).flatMap { isoFormatter.date(from: $0) }
-        let sandboxType = stringValue(sandboxPolicy?["type"]) ?? stringValue(payload["sandbox_policy"])
-        let permissionProfileType = stringValue(permissionProfile?["type"]) ?? stringValue(payload["permission_profile"])
+        let sandboxType = stringValue(sandboxPolicy?["type"]) ?? stringValue(context["sandbox_policy"])
+        let permissionProfileType = stringValue(permissionProfile?["type"]) ?? stringValue(context["permission_profile"])
         let fileSystemPolicy = stringValue(profileFileSystem?["type"])
             ?? stringValue(fileSystemSandbox?["kind"])
-            ?? stringValue(payload["file_system_sandbox_policy"])
+            ?? stringValue(context["file_system_sandbox_policy"])
             ?? (sandboxType?.lowercased() == "danger-full-access" ? "unrestricted" : nil)
         let networkFromSandbox = boolValue(sandboxPolicy?["network_access"])
-        let networkFromProfile = stringValue(permissionProfile?["network"]).map { $0.lowercased() != "restricted" }
-        let networkFromTopLevel = boolValue(payload["network"])
-            ?? stringValue(payload["network"]).map { $0.lowercased() != "restricted" && $0.lowercased() != "disabled" }
+        let networkFromProfile = networkPolicyValue(permissionProfile?["network"])
+        let networkFromTopLevel = networkPolicyValue(context["network"])
         let networkAccess = networkFromSandbox
             ?? networkFromProfile
             ?? networkFromTopLevel
             ?? (sandboxType?.lowercased() == "danger-full-access" ? true : nil)
 
         return TurnContextSnapshot(
-            approvalPolicy: stringValue(payload["approval_policy"]),
+            approvalPolicy: stringValue(context["approval_policy"]),
             sandboxPolicy: sandboxType,
             permissionProfile: permissionProfileType,
             fileSystemPolicy: fileSystemPolicy,
@@ -392,8 +389,34 @@ public final class CodexPermissionMonitor: @unchecked Sendable {
         return values?.contentModificationDate
     }
 
+    private func isTrustedWorkspaceLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.hasPrefix("#") else { return false }
+        return trimmed.range(
+            of: #"^trust_level\s*=\s*["']trusted["']"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
     private func stringValue(_ value: Any?) -> String? {
         value as? String
+    }
+
+    private func networkPolicyValue(_ value: Any?) -> Bool? {
+        if let bool = boolValue(value) {
+            return bool
+        }
+        guard let string = stringValue(value)?.lowercased() else {
+            return nil
+        }
+        switch string {
+        case "enabled", "allowed", "allow", "unrestricted", "true", "yes", "1":
+            return true
+        case "restricted", "disabled", "disable", "denied", "deny", "false", "no", "0":
+            return false
+        default:
+            return nil
+        }
     }
 
     private func boolValue(_ value: Any?) -> Bool? {

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public struct CodexPermissionCLIConfiguration: Equatable, Sendable {
@@ -219,6 +220,23 @@ public final class CodexPermissionConfigWriter: @unchecked Sendable {
                 domain: "CodexPermissionConfigWriter",
                 code: 2,
                 userInfo: [NSLocalizedDescriptionKey: "\(configURL.path) is not a regular file."]
+            )
+        }
+        let attributes = try fileManager.attributesOfItem(atPath: configURL.path)
+        if let owner = attributes[.ownerAccountID] as? NSNumber,
+           owner.uint32Value != getuid() {
+            throw NSError(
+                domain: "CodexPermissionConfigWriter",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "\(configURL.path) is not owned by the current user."]
+            )
+        }
+        if let referenceCount = attributes[.referenceCount] as? NSNumber,
+           referenceCount.intValue > 1 {
+            throw NSError(
+                domain: "CodexPermissionConfigWriter",
+                code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "\(configURL.path) must not have multiple hard links."]
             )
         }
         try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)

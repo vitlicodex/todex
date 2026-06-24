@@ -425,6 +425,54 @@ private func testPermissionMonitorParsesAlternateTurnContextShapes() throws {
     expectEqual(snapshot.networkAccess, true, "Permission monitor should parse top-level network metadata.")
 }
 
+private func testPermissionMonitorParsesNetworkAndTrustedWorkspaceSafely() throws {
+    let temp = try temporaryDirectory()
+    let codex = temp.appendingPathComponent(".codex", isDirectory: true)
+    let sessions = codex.appendingPathComponent("sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+    try """
+    # trust_level = "trusted"
+    some_other_trust_level = "trusted"
+    trust_level = 'trusted'
+    """.write(to: codex.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8)
+
+    let url = sessions.appendingPathComponent("rollout.jsonl")
+    try """
+    {"timestamp":"2026-06-23T10:00:00.000Z","type": "event_msg","payload": {"type": "turn_context","approval_policy":"on-request","sandbox_policy":"workspace-write","permission_profile":{"type":"standard","network":"disabled"}}}
+    """.write(to: url, atomically: true, encoding: .utf8)
+
+    let snapshot = CodexPermissionMonitor(homeDirectory: temp).snapshot()
+
+    expectEqual(snapshot.networkAccess, false, "Disabled permission_profile network should not be treated as enabled.")
+    expectEqual(snapshot.trustedWorkspaceCount, 1, "Trusted workspace parser should ignore comments and non-exact keys while accepting single quotes.")
+    expect(
+        !snapshot.issues.contains("No trusted workspaces were found in Codex config."),
+        "Trusted workspace absence/presence should not produce a misleading warning issue."
+    )
+}
+
+private func testPermissionMonitorParsesTopLevelTurnContext() throws {
+    let temp = try temporaryDirectory()
+    let codex = temp.appendingPathComponent(".codex", isDirectory: true)
+    let sessions = codex.appendingPathComponent("sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+    try "model = \"gpt-5\"".write(to: codex.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8)
+
+    let url = sessions.appendingPathComponent("rollout.jsonl")
+    try """
+    {"timestamp":"2026-06-23T10:00:00.000Z","type": "turn_context","approval_policy":"never","sandbox_policy":"workspace-write","network":"enabled"}
+    """.write(to: url, atomically: true, encoding: .utf8)
+
+    let snapshot = CodexPermissionMonitor(homeDirectory: temp).snapshot()
+
+    expectEqual(snapshot.approvalPolicy, "never", "Permission monitor should parse top-level turn_context records.")
+    expectEqual(snapshot.networkAccess, true, "Permission monitor should parse top-level turn_context network metadata.")
+    expect(
+        !snapshot.issues.contains("No trusted workspaces were found in Codex config."),
+        "Missing trusted workspaces should not be reported as a problem by itself."
+    )
+}
+
 private func testPermissionPresetLevelsApplyExpectedRules() {
     var settings = MonitorSettings()
 
@@ -481,6 +529,52 @@ private func testPermissionPresetWriterUpdatesCodexConfig() throws {
     expect(automationText.contains(#"approval_policy = "never""#), "Automation should set never approval policy.")
     expect(automationText.contains(#"sandbox_mode = "workspace-write""#), "Automation should set workspace-write sandbox mode.")
     expect(automationText.contains("network_access = true"), "Automation should enable workspace-write network access.")
+}
+
+private func testPermissionConfigWriterRejectsBackupSymlink() throws {
+    let temp = try temporaryDirectory()
+    let codex = temp.appendingPathComponent(".codex", isDirectory: true)
+    try FileManager.default.createDirectory(at: codex, withIntermediateDirectories: true)
+    let configURL = codex.appendingPathComponent("config.toml")
+    let backupURL = codex.appendingPathComponent("config.toml.todex-backup")
+    let targetURL = temp.appendingPathComponent("backup-target.txt")
+    try "model = \"gpt-5\"\n".write(to: configURL, atomically: true, encoding: .utf8)
+    try "do not overwrite".write(to: targetURL, atomically: true, encoding: .utf8)
+    try FileManager.default.createSymbolicLink(at: backupURL, withDestinationURL: targetURL)
+
+    let writer = CodexPermissionConfigWriter(configURL: configURL)
+    expectThrows("Config writer should reject a symlinked backup destination.") {
+        _ = try writer.applyPreset(.lockedDown)
+    }
+
+    let configText = try String(contentsOf: configURL, encoding: .utf8)
+    let targetText = try String(contentsOf: targetURL, encoding: .utf8)
+    expectEqual(configText, "model = \"gpt-5\"\n", "Config writer should not modify config when backup destination is unsafe.")
+    expectEqual(targetText, "do not overwrite", "Config writer should not write through a symlinked backup target.")
+}
+
+private func testPermissionConfigWriterRejectsHardlinkedConfig() throws {
+    let temp = try temporaryDirectory()
+    let codex = temp.appendingPathComponent(".codex", isDirectory: true)
+    try FileManager.default.createDirectory(at: codex, withIntermediateDirectories: true)
+    let realConfig = temp.appendingPathComponent("real-config.toml")
+    let configURL = codex.appendingPathComponent("config.toml")
+    try "model = \"gpt-5\"\n".write(to: realConfig, atomically: true, encoding: .utf8)
+    do {
+        try FileManager.default.linkItem(at: realConfig, to: configURL)
+    } catch {
+        return
+    }
+
+    let writer = CodexPermissionConfigWriter(configURL: configURL)
+    expectThrows("Config writer should reject hardlinked config files.") {
+        _ = try writer.applyPreset(.lockedDown)
+    }
+
+    let realText = try String(contentsOf: realConfig, encoding: .utf8)
+    let configText = try String(contentsOf: configURL, encoding: .utf8)
+    expectEqual(realText, "model = \"gpt-5\"\n", "Config writer should not modify a hardlinked config target.")
+    expectEqual(configText, "model = \"gpt-5\"\n", "Config writer should leave hardlinked config content unchanged.")
 }
 
 private func countOccurrences(of needle: String, in haystack: String) -> Int {
@@ -895,8 +989,12 @@ private let tests: [(String, () throws -> Void)] = [
     ("Codex project metadata parsing", testCodexSessionParserAttachesProjectMetadata),
     ("Codex permission monitoring", testPermissionMonitorFlagsBroadPermissions),
     ("Codex permission metadata shapes", testPermissionMonitorParsesAlternateTurnContextShapes),
+    ("Codex permission network and trust parsing", testPermissionMonitorParsesNetworkAndTrustedWorkspaceSafely),
+    ("Codex permission top-level turn context parsing", testPermissionMonitorParsesTopLevelTurnContext),
     ("Permission presets", testPermissionPresetLevelsApplyExpectedRules),
     ("Permission config writer", testPermissionPresetWriterUpdatesCodexConfig),
+    ("Permission config writer backup symlink refusal", testPermissionConfigWriterRejectsBackupSymlink),
+    ("Permission config writer hardlink refusal", testPermissionConfigWriterRejectsHardlinkedConfig),
     ("Usage store aggregation", testStoreAggregatesSessionAndTotalStatistics),
     ("Usage store project enrichment", testStoreEnrichesExistingSampleProjectMetadata),
     ("Usage store daily history", testStorePersistsDailyHistoryAndProjectBreakdown),
