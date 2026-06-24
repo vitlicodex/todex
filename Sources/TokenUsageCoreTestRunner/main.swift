@@ -276,6 +276,10 @@ private func testStorePersistsDailyHistoryAndProjectBreakdown() throws {
     expectEqual(stats.todayProjectBreakdown.first?.label, "alpha", "Today project breakdown should be sorted by token count.")
     expectEqual(stats.todayProjectBreakdown.first?.totalTokens, 150, "Today project breakdown should aggregate tokens by project.")
     expect(stats.recentDailyUsage.contains { $0.label == "Today" && $0.totalTokens == 175 }, "Recent daily usage should include today.")
+    expect(
+        stats.recentDailyUsage.count >= calendar.component(.day, from: now),
+        "Recent daily usage should cover the current month for calendar rendering."
+    )
 }
 
 private func testStoreDecodesLegacyStateWithoutFingerprints() throws {

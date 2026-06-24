@@ -420,10 +420,12 @@ public final class OpenAIUsageClient: @unchecked Sendable {
         calendar: Calendar,
         todayStart: Date
     ) -> [UsagePeriodSummary] {
+        let monthStart = Self.monthStart(for: todayStart)
+        let dayCount = (calendar.dateComponents([.day], from: monthStart, to: todayStart).day ?? 0) + 1
         var output: [UsagePeriodSummary] = []
-        output.reserveCapacity(14)
+        output.reserveCapacity(dayCount)
 
-        for offset in stride(from: 13, through: 0, by: -1) {
+        for offset in stride(from: dayCount - 1, through: 0, by: -1) {
             guard let day = calendar.date(byAdding: .day, value: -offset, to: todayStart) else {
                 continue
             }

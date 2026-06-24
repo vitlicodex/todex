@@ -341,10 +341,12 @@ public final class TokenUsageStore: @unchecked Sendable {
         calendar: Calendar,
         todayStart: Date
     ) -> [UsagePeriodSummary] {
+        let monthStart = calendar.dateInterval(of: .month, for: todayStart)?.start ?? todayStart
+        let dayCount = (calendar.dateComponents([.day], from: monthStart, to: todayStart).day ?? 0) + 1
         var summaries: [UsagePeriodSummary] = []
-        summaries.reserveCapacity(14)
+        summaries.reserveCapacity(dayCount)
 
-        for offset in stride(from: 13, through: 0, by: -1) {
+        for offset in stride(from: dayCount - 1, through: 0, by: -1) {
             guard let dayStart = calendar.date(byAdding: .day, value: -offset, to: todayStart),
                   let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) else {
                 continue

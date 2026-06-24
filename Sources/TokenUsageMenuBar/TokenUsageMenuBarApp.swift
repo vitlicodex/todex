@@ -40,6 +40,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
     private var lastPermissionRefreshAt: Date?
     private var lastButtonRenderSignature: String?
     private var lastMenuRenderSignature: String?
+    private var usageCalendarScope: UsageCalendarScope = .week
     private var settings = MonitorSettings()
     private var startupWindow: NSWindow?
     private var apiKeyWindow: NSWindow?
@@ -253,6 +254,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
             periodSignature(statistics.currentWeekUsage),
             periodSignature(statistics.currentMonthUsage),
             statistics.recentDailyUsage.map(periodSignature).joined(separator: ","),
+            usageCalendarScope.rawValue,
             statistics.issues.map(\.message).joined(separator: "\u{1f}")
         ].joined(separator: "|")
             + "|\(breakdownSignature(statistics.modelBreakdown))"
@@ -352,24 +354,19 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
             addDisabled(periodLine(statistics.currentMonthUsage), to: submenu)
 
             submenu.addItem(.separator())
-            addDisabled("Daily History", to: submenu)
-            let rows = statistics.recentDailyUsage.isEmpty
-                ? [statistics.todayUsage]
-                : Array(statistics.recentDailyUsage.suffix(14).reversed())
-            for summary in rows {
-                addDisabled(periodLine(summary), to: submenu)
-            }
-
-            submenu.addItem(.separator())
-            addDisabled("Codex Projects Today", to: submenu)
-            if statistics.todayProjectBreakdown.isEmpty {
-                addDisabled("No project metadata yet", to: submenu)
-            } else {
-                for row in statistics.todayProjectBreakdown.prefix(8) {
-                    addDisabled(projectLine(row), to: submenu)
-                }
-            }
+            addUsageCalendar(to: submenu)
         }
+    }
+
+    private func addUsageCalendar(to menu: NSMenu) {
+        let item = NSMenuItem()
+        item.view = UsageCalendarMenuView(
+            statistics: statistics,
+            scope: usageCalendarScope,
+            target: self,
+            action: #selector(selectUsageCalendarScope(_:))
+        )
+        menu.addItem(item)
     }
 
     private func addReportsSubmenu(to menu: NSMenu) {
@@ -629,6 +626,12 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
 
     @objc private func refreshNow() {
         refresh(force: true)
+    }
+
+    @objc private func selectUsageCalendarScope(_ sender: NSSegmentedControl) {
+        usageCalendarScope = sender.selectedSegment == 1 ? .month : .week
+        lastMenuRenderSignature = nil
+        rebuildMenu()
     }
 
     @objc private func openHelp() {
