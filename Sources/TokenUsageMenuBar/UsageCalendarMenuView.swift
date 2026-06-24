@@ -176,11 +176,16 @@ final class UsageCalendarMenuView: NSView {
 
         if showWeekday {
             if day.isPeakUsageDay {
-                drawPeakMarker(in: NSRect(x: rect.maxX - 18, y: rect.maxY - 18, width: 12, height: 12))
+                drawPeakMarker(in: NSRect(x: rect.maxX - 16, y: rect.maxY - 16, width: 11, height: 10))
             }
             drawText(
                 day.weekday,
-                rect: NSRect(x: rect.minX + 5, y: rect.maxY - 18, width: rect.width - 10, height: 12),
+                rect: NSRect(
+                    x: rect.minX + 5,
+                    y: rect.maxY - 18,
+                    width: rect.width - (day.isPeakUsageDay ? 24 : 10),
+                    height: 12
+                ),
                 size: 9,
                 weight: .medium,
                 color: secondaryColor,
@@ -208,11 +213,16 @@ final class UsageCalendarMenuView: NSView {
             }
         } else {
             if day.isPeakUsageDay {
-                drawPeakMarker(in: NSRect(x: rect.maxX - 15, y: rect.maxY - 14, width: 10, height: 10))
+                drawPeakMarker(in: NSRect(x: rect.maxX - 13, y: rect.maxY - 12, width: 8, height: 7))
             }
             drawText(
                 "\(day.dayNumber)",
-                rect: NSRect(x: rect.minX + 4, y: rect.maxY - 15, width: rect.width - 8, height: 11),
+                rect: NSRect(
+                    x: rect.minX + 4,
+                    y: rect.maxY - 15,
+                    width: rect.width - (day.isPeakUsageDay ? 20 : 8),
+                    height: 11
+                ),
                 size: 8.5,
                 weight: day.isToday ? .bold : .medium,
                 color: primaryColor,
@@ -234,20 +244,23 @@ final class UsageCalendarMenuView: NSView {
     }
 
     private func drawPeakMarker(in rect: NSRect) {
-        if let crown = NSImage(systemSymbolName: "crown.fill", accessibilityDescription: "Peak usage")?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: rect.height, weight: .semibold)) {
-            crown.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 0.95)
-            return
-        }
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: rect.minX + rect.width * 0.08, y: rect.minY + rect.height * 0.24))
+        path.line(to: NSPoint(x: rect.minX + rect.width * 0.20, y: rect.maxY - rect.height * 0.12))
+        path.line(to: NSPoint(x: rect.minX + rect.width * 0.40, y: rect.minY + rect.height * 0.44))
+        path.line(to: NSPoint(x: rect.midX, y: rect.maxY - rect.height * 0.02))
+        path.line(to: NSPoint(x: rect.minX + rect.width * 0.60, y: rect.minY + rect.height * 0.44))
+        path.line(to: NSPoint(x: rect.minX + rect.width * 0.80, y: rect.maxY - rect.height * 0.12))
+        path.line(to: NSPoint(x: rect.maxX - rect.width * 0.08, y: rect.minY + rect.height * 0.24))
+        path.line(to: NSPoint(x: rect.maxX - rect.width * 0.14, y: rect.minY + rect.height * 0.02))
+        path.line(to: NSPoint(x: rect.minX + rect.width * 0.14, y: rect.minY + rect.height * 0.02))
+        path.close()
 
-        drawText(
-            "*",
-            rect: rect,
-            size: rect.height,
-            weight: .bold,
-            color: Self.peakGold,
-            alignment: .center
-        )
+        Self.peakGold.setFill()
+        path.fill()
+        NSColor.white.withAlphaComponent(0.22).setStroke()
+        path.lineWidth = 0.6
+        path.stroke()
     }
 
     private func calendarTokenText(_ value: Int) -> String {
