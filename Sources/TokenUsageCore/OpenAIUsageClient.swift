@@ -319,6 +319,9 @@ public final class OpenAIUsageClient: @unchecked Sendable {
         guard let url = components.url else {
             throw OpenAIUsageError(.apiResponseInvalid("Could not build URL for \(path)."))
         }
+        guard url.scheme?.lowercased() == "https" else {
+            throw OpenAIUsageError(.apiRequestFailed("Refusing to send Authorization header to a non-HTTPS API URL."))
+        }
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"

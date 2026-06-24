@@ -56,6 +56,7 @@ final class TokenUsageViewModel: ObservableObject {
 
     func openUsageSource() {
         if let source = engine.activeSourceURL {
+            guard confirmOpeningRawSource(source) else { return }
             NSWorkspace.shared.open(source)
         } else {
             NSWorkspace.shared.open(TokenUsageStore.defaultStateURL().deletingLastPathComponent())
@@ -124,6 +125,20 @@ final class TokenUsageViewModel: ObservableObject {
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
         alert.runModal()
+    }
+
+    private func confirmOpeningRawSource(_ source: URL) -> Bool {
+        guard source.isFileURL else {
+            return true
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Open raw token source?"
+        alert.informativeText = "This source file can contain raw Codex session data, including prompt text. Token reports are safer because they contain numeric statistics only."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Open Raw File")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     static func compact(_ value: Int) -> String {

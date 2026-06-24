@@ -27,4 +27,4 @@ jobs:
         run: Scripts/make-app-bundle.sh
 
       - name: Verify app bundle signature
-        run: codesign --verify --deep --strict .build/CodexTokenMenuBar.app
+        run: codesign --verify --deep --strict .build/TODEX.app

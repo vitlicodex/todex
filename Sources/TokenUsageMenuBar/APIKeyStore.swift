@@ -272,6 +272,10 @@ final class APIKeyStore {
             throw APIKeyStoreError.insecureStorage("\(url.path) must not be a symlink.")
         }
         let attributes = try fileManager.attributesOfItem(atPath: url.path)
+        if let referenceCount = attributes[.referenceCount] as? NSNumber,
+           referenceCount.intValue > 1 {
+            throw APIKeyStoreError.insecureStorage("\(url.path) must not have multiple hard links.")
+        }
         try validateOwnerAndMode(attributes: attributes, path: url.path, maxPermissions: 0o600)
     }
 

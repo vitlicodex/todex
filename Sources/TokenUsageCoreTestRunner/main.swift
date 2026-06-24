@@ -627,6 +627,24 @@ private func testPrivateFileIORejectsSymlinkDestination() throws {
     expectEqual(realContents, "{}", "Private file writer should not modify the symlink target.")
 }
 
+private func testPrivateFileIORejectsHardlinkDestination() throws {
+    let temp = try temporaryDirectory()
+    let realFile = temp.appendingPathComponent("real.json")
+    let hardlink = temp.appendingPathComponent("stats.json")
+    try Data("{}".utf8).write(to: realFile)
+    do {
+        try FileManager.default.linkItem(at: realFile, to: hardlink)
+    } catch {
+        return
+    }
+
+    expectThrows("Private file writer should reject hardlink destinations.") {
+        try PrivateFileIO.writePrivateData(Data(#"{"changed":true}"#.utf8), to: hardlink)
+    }
+    let realContents = try String(contentsOf: realFile, encoding: .utf8)
+    expectEqual(realContents, "{}", "Private file writer should not modify a hardlinked target.")
+}
+
 private func testParserRefusesOversizedStructuredJSONFile() throws {
     let temp = try temporaryDirectory()
     let url = temp.appendingPathComponent("usage.json")
@@ -641,6 +659,42 @@ private func testParserRefusesOversizedStructuredJSONFile() throws {
         [.unreadableSource(url.path, "Structured JSON file is too large to parse safely.")],
         "Oversized structured JSON should return a safe refusal issue."
     )
+}
+
+private func testReportPrivacyRedactsLocalPaths() throws {
+    let temp = try temporaryDirectory()
+    let reportURL = temp.appendingPathComponent("report.json")
+    let privatePath = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".codex/sessions/2026/06/25/rollout-private.jsonl")
+        .path
+    var statistics = TokenUsageStatistics.empty
+    statistics.activeSourcePath = privatePath
+    statistics.issues = [
+        .permissionDenied(privatePath),
+        .sourceTruncated(privatePath, parsedSamples: 1, limit: 1),
+        .unreadableSource(privatePath, "Could not read \(privatePath)")
+    ]
+    let report = TokenUsageReport(
+        generatedAt: Date(timeIntervalSince1970: 1),
+        sessionStartedAt: Date(timeIntervalSince1970: 0),
+        statistics: statistics,
+        numericSamples: [
+            sample(
+                id: "sample",
+                timestamp: Date(timeIntervalSince1970: 1),
+                input: 10,
+                output: 2,
+                sourcePath: privatePath
+            )
+        ]
+    )
+
+    let store = TokenUsageStore(stateURL: temp.appendingPathComponent("stats.json"))
+    try store.saveReportJSON(report, to: reportURL)
+    let exported = try String(contentsOf: reportURL, encoding: .utf8)
+
+    expect(!exported.contains(FileManager.default.homeDirectoryForCurrentUser.path), "Report export should not contain full private user paths.")
+    expect(exported.contains("rollout-private.jsonl"), "Report export should keep a redacted source file hint.")
 }
 
 private let tests: [(String, () throws -> Void)] = [
@@ -665,7 +719,9 @@ private let tests: [(String, () throws -> Void)] = [
     ("Source fingerprint persistence", testEnginePersistsSourceFingerprintsAcrossRestart),
     ("Incremental source cursor", testEngineUsesIncrementalCursorForAppendedSessionLog),
     ("Private file symlink refusal", testPrivateFileIORejectsSymlinkDestination),
-    ("Oversized JSON refusal", testParserRefusesOversizedStructuredJSONFile)
+    ("Private file hardlink refusal", testPrivateFileIORejectsHardlinkDestination),
+    ("Oversized JSON refusal", testParserRefusesOversizedStructuredJSONFile),
+    ("Report privacy redaction", testReportPrivacyRedactsLocalPaths)
 ]
 
 for (name, test) in tests {

@@ -46,9 +46,8 @@ final class LaunchAtLoginController {
     private func install() throws {
         let executablePath = try validatedAppExecutablePath()
         let support = supportDirectory()
-        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: launchAgentURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: support.path)
+        try PrivateFileIO.createPrivateDirectory(support)
+        try PrivateFileIO.createPrivateDirectory(launchAgentURL.deletingLastPathComponent())
         try uninstallLegacyAgents()
 
         let plist = """
@@ -71,8 +70,7 @@ final class LaunchAtLoginController {
         </dict>
         </plist>
         """
-        try plist.write(to: launchAgentURL, atomically: true, encoding: .utf8)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: launchAgentURL.path)
+        try PrivateFileIO.writePrivateString(plist, to: launchAgentURL)
         try runLaunchctl(arguments: ["bootstrap", "gui/\(getuid())", launchAgentURL.path], allowFailure: true)
     }
 
@@ -121,7 +119,8 @@ final class LaunchAtLoginController {
     }
 
     private func validatedAppExecutablePath() throws -> String {
-        guard Bundle.main.bundleURL.pathExtension == "app",
+        let bundleURL = Bundle.main.bundleURL.standardizedFileURL
+        guard bundleURL.pathExtension == "app",
               let executableURL = Bundle.main.executableURL else {
             throw NSError(
                 domain: "LaunchAtLoginController",
@@ -133,8 +132,38 @@ final class LaunchAtLoginController {
             )
         }
 
+        let bundlePath = bundleURL.path
+        guard !bundlePath.contains("/.build/") else {
+            throw NSError(
+                domain: "LaunchAtLoginController",
+                code: 4,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Launch at Login can only be enabled from an installed app bundle, not from a build output folder."
+                ]
+            )
+        }
+
+        let bundleValues = try bundleURL.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard bundleValues.isDirectory == true, bundleValues.isSymbolicLink != true else {
+            throw NSError(
+                domain: "LaunchAtLoginController",
+                code: 5,
+                userInfo: [NSLocalizedDescriptionKey: "Launch at Login app bundle must be a real directory, not a symlink."]
+            )
+        }
+
         let executablePath = executableURL.standardizedFileURL.path
-        let macOSPath = Bundle.main.bundleURL
+        let executableValues = try executableURL.standardizedFileURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard executableValues.isRegularFile == true, executableValues.isSymbolicLink != true else {
+            throw NSError(
+                domain: "LaunchAtLoginController",
+                code: 6,
+                userInfo: [NSLocalizedDescriptionKey: "Launch at Login executable must be a real file, not a symlink."]
+            )
+        }
+
+        let macOSPath = bundleURL
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("MacOS", isDirectory: true)
             .standardizedFileURL

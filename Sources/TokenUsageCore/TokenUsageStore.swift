@@ -277,7 +277,7 @@ public final class TokenUsageStore: @unchecked Sendable {
     }
 
     public func saveReportJSON(_ report: TokenUsageReport, to destinationURL: URL) throws {
-        let data = try encoder.encode(report)
+        let data = try encoder.encode(report.privacyRedactedForReport())
         try PrivateFileIO.writePrivateData(data, to: destinationURL)
     }
 

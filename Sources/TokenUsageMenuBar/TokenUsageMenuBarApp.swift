@@ -549,16 +549,17 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
 
         let sourceURL = URL(fileURLWithPath: activeSourcePath)
         let fileName = sourceURL.lastPathComponent.isEmpty ? "unknown" : sourceURL.lastPathComponent
-        let folder = sourceURL.deletingLastPathComponent().path
+        let folder = TokenReportPrivacy.redactedPath(sourceURL.deletingLastPathComponent().path)
+        let redactedSourcePath = TokenReportPrivacy.redactedPath(activeSourcePath)
         addDisabled(
             "File: \(compactMenuText(fileName, maxLength: 40))",
             to: menu,
-            toolTip: activeSourcePath
+            toolTip: redactedSourcePath
         )
         addDisabled(
             "Folder: \(compactPath(folder, maxLength: 44))",
             to: menu,
-            toolTip: activeSourcePath
+            toolTip: redactedSourcePath
         )
     }
 
@@ -1608,59 +1609,53 @@ actor TokenRefreshWorker {
     }
 
     func writeMarkdownReport(to url: URL) throws {
-        let report = TokenUsageReport(
-            generatedAt: Date(),
-            sessionStartedAt: Date(),
-            statistics: lastStatistics,
-            numericSamples: []
-        )
+        let stats = lastStatistics.privacyRedactedForReport()
         let text = """
         # TODEX Usage Report
 
         Generated: \(Date())
-        Source: \(lastStatistics.dataSource ?? "unknown")
-        Mode: \(lastStatistics.mode.rawValue)
-        Status: \(lastStatistics.status.rawValue)
+        Source: \(stats.dataSource ?? "unknown")
+        Mode: \(stats.mode.rawValue)
+        Status: \(stats.status.rawValue)
 
-        - Requests today: \(lastStatistics.primaryDisplayUsage.requests)
-        - Tokens today: \(lastStatistics.primaryDisplayUsage.totalTokens)
-        - Tokens month-to-date: \(lastStatistics.totalTokens)
-        - Average tokens per request today: \(TokenUsageUIDisplay.integer(TokenUsageUIDisplay.averageTokensPerRequest(lastStatistics.primaryDisplayUsage)))
-        - Average tokens per request in current session: \(TokenUsageUIDisplay.integer(lastStatistics.averageTokensPerPrompt))
-        - Input tokens today: \(lastStatistics.primaryDisplayUsage.inputTokens)
-        - Output tokens today: \(lastStatistics.primaryDisplayUsage.outputTokens)
-        - Cached input tokens today: \(lastStatistics.cachedInputTokens)
-        - Daily cost: \(lastStatistics.dailyCostUSD.map { String(format: "$%.4f", $0) } ?? "n/a")
-        - Monthly cost: \(lastStatistics.monthlyCostUSD.map { String(format: "$%.4f", $0) } ?? "n/a")
+        - Requests today: \(stats.primaryDisplayUsage.requests)
+        - Tokens today: \(stats.primaryDisplayUsage.totalTokens)
+        - Tokens month-to-date: \(stats.totalTokens)
+        - Average tokens per request today: \(TokenUsageUIDisplay.integer(TokenUsageUIDisplay.averageTokensPerRequest(stats.primaryDisplayUsage)))
+        - Average tokens per request in current session: \(TokenUsageUIDisplay.integer(stats.averageTokensPerPrompt))
+        - Input tokens today: \(stats.primaryDisplayUsage.inputTokens)
+        - Output tokens today: \(stats.primaryDisplayUsage.outputTokens)
+        - Cached input tokens today: \(stats.cachedInputTokens)
+        - Daily cost: \(stats.dailyCostUSD.map { String(format: "$%.4f", $0) } ?? "n/a")
+        - Monthly cost: \(stats.monthlyCostUSD.map { String(format: "$%.4f", $0) } ?? "n/a")
 
         ## Usage Log
 
-        - Today: \(lastStatistics.todayUsage.totalTokens) tokens, \(lastStatistics.todayUsage.requests) requests
-        - Yesterday: \(lastStatistics.yesterdayUsage.totalTokens) tokens, \(lastStatistics.yesterdayUsage.requests) requests
-        - This week: \(lastStatistics.currentWeekUsage.totalTokens) tokens, \(lastStatistics.currentWeekUsage.requests) requests
-        - This month: \(lastStatistics.currentMonthUsage.totalTokens) tokens, \(lastStatistics.currentMonthUsage.requests) requests
+        - Today: \(stats.todayUsage.totalTokens) tokens, \(stats.todayUsage.requests) requests
+        - Yesterday: \(stats.yesterdayUsage.totalTokens) tokens, \(stats.yesterdayUsage.requests) requests
+        - This week: \(stats.currentWeekUsage.totalTokens) tokens, \(stats.currentWeekUsage.requests) requests
+        - This month: \(stats.currentMonthUsage.totalTokens) tokens, \(stats.currentMonthUsage.requests) requests
 
         ## Daily History
 
-        \(lastStatistics.recentDailyUsage.isEmpty ? "- No daily history yet" : lastStatistics.recentDailyUsage.map { "- \($0.label): \($0.totalTokens) tokens, \($0.requests) requests" }.joined(separator: "\n"))
+        \(stats.recentDailyUsage.isEmpty ? "- No daily history yet" : stats.recentDailyUsage.map { "- \($0.label): \($0.totalTokens) tokens, \($0.requests) requests" }.joined(separator: "\n"))
 
         ## Codex Projects Today
 
-        \(lastStatistics.todayProjectBreakdown.isEmpty ? "- No project metadata yet" : lastStatistics.todayProjectBreakdown.map { "- \($0.label): \($0.totalTokens) tokens, \($0.requests) requests" }.joined(separator: "\n"))
+        \(stats.todayProjectBreakdown.isEmpty ? "- No project metadata yet" : stats.todayProjectBreakdown.map { "- \($0.label): \($0.totalTokens) tokens, \($0.requests) requests" }.joined(separator: "\n"))
 
         This report contains numeric usage statistics and technical metadata only.
         """
         try PrivateFileIO.writePrivateString(text, to: url)
-        _ = report
     }
 
     func writeReportJSON(to url: URL) throws {
         let report = TokenUsageReport(
             generatedAt: Date(),
             sessionStartedAt: Date(),
-            statistics: lastStatistics,
+            statistics: lastStatistics.privacyRedactedForReport(),
             numericSamples: []
-        )
+        ).privacyRedactedForReport()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601

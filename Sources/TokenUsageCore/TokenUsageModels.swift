@@ -66,6 +66,102 @@ public enum TokenMonitorIssue: Error, Codable, Equatable, Sendable {
             return "Stopped parsing \(path) after \(parsedSamples) token samples (limit \(limit)); usage may be incomplete."
         }
     }
+
+    public func privacyRedactedForReport() -> TokenMonitorIssue {
+        switch self {
+        case .codexLogsNotFound, .apiKeyMissing, .apiUnauthorized, .apiKeyLocked:
+            return self
+        case .tokenUsageFileMissing(let path):
+            return .tokenUsageFileMissing(TokenReportPrivacy.redactedPath(path))
+        case .invalidJSON(let path):
+            return .invalidJSON(TokenReportPrivacy.redactedPath(path))
+        case .permissionDenied(let path):
+            return .permissionDenied(TokenReportPrivacy.redactedPath(path))
+        case .apiUsageFieldsUnavailable(let path):
+            return .apiUsageFieldsUnavailable(TokenReportPrivacy.redactedPath(path))
+        case .unreadableSource(let path, let detail):
+            return .unreadableSource(
+                TokenReportPrivacy.redactedPath(path),
+                TokenReportPrivacy.redactSensitivePaths(in: detail)
+            )
+        case .apiRequestFailed(let detail):
+            return .apiRequestFailed(TokenReportPrivacy.redactSensitivePaths(in: detail))
+        case .apiResponseInvalid(let detail):
+            return .apiResponseInvalid(TokenReportPrivacy.redactSensitivePaths(in: detail))
+        case .sourceTruncated(let path, let parsedSamples, let limit):
+            return .sourceTruncated(
+                TokenReportPrivacy.redactedPath(path),
+                parsedSamples: parsedSamples,
+                limit: limit
+            )
+        }
+    }
+}
+
+public enum TokenReportPrivacy {
+    public static func redactedPath(_ path: String) -> String {
+        guard !path.isEmpty else { return path }
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.hasPrefix("https://"), !trimmed.hasPrefix("http://") else {
+            return trimmed
+        }
+
+        let fileName = URL(fileURLWithPath: trimmed).lastPathComponent
+        let safeFileName = fileName.isEmpty ? "file" : fileName
+        let lowerPath = trimmed.lowercased()
+        if lowerPath.contains("/.codex/sessions/") {
+            return "~/.codex/sessions/\(safeFileName)"
+        }
+        if lowerPath.contains("/.codex/") {
+            return "~/.codex/\(safeFileName)"
+        }
+        if lowerPath.contains("/library/application support/todex/") {
+            return "~/Library/Application Support/TODEX/\(safeFileName)"
+        }
+        if lowerPath.contains("/library/logs/") {
+            return "~/Library/Logs/\(safeFileName)"
+        }
+
+        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+        if trimmed == home {
+            return "~"
+        }
+        if trimmed.hasPrefix(home + "/") {
+            return "~/.../\(safeFileName)"
+        }
+        if trimmed.hasPrefix("/") {
+            return "<local>/\(safeFileName)"
+        }
+        return trimmed
+    }
+
+    public static func redactSensitivePaths(in text: String) -> String {
+        guard !text.isEmpty else { return text }
+        var output = text
+        let patterns = [
+            #"/Users/[^\s,;\)\]\}"]+"#,
+            #"/private/var/[^\s,;\)\]\}"]+"#,
+            #"/var/[^\s,;\)\]\}"]+"#,
+            #"/tmp/[^\s,;\)\]\}"]+"#
+        ]
+
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else {
+                continue
+            }
+            let matches = regex.matches(
+                in: output,
+                range: NSRange(output.startIndex..<output.endIndex, in: output)
+            )
+            for match in matches.reversed() {
+                guard let range = Range(match.range, in: output) else { continue }
+                let path = String(output[range])
+                output.replaceSubrange(range, with: redactedPath(path))
+            }
+        }
+
+        return output
+    }
 }
 
 public struct UsageBreakdown: Codable, Equatable, Sendable {
@@ -148,6 +244,22 @@ public struct TokenUsageSample: Codable, Equatable, Sendable {
             sourcePath: sourcePath,
             projectID: projectID ?? self.projectID,
             projectName: projectName ?? self.projectName
+        )
+    }
+
+    public func privacyRedactedForReport() -> TokenUsageSample {
+        TokenUsageSample(
+            id: id,
+            timestamp: timestamp,
+            inputTokens: inputTokens,
+            cachedInputTokens: cachedInputTokens,
+            outputTokens: outputTokens,
+            totalTokens: totalTokens,
+            mode: mode,
+            sourceID: sourceID,
+            sourcePath: TokenReportPrivacy.redactedPath(sourcePath),
+            projectID: projectID,
+            projectName: projectName
         )
     }
 
@@ -300,6 +412,15 @@ public struct TokenUsageStatistics: Codable, Equatable, Sendable {
             last10Average: last10PromptsAverage
         )
     }
+
+    public func privacyRedactedForReport() -> TokenUsageStatistics {
+        var redacted = self
+        if let activeSourcePath {
+            redacted.activeSourcePath = TokenReportPrivacy.redactedPath(activeSourcePath)
+        }
+        redacted.issues = issues.map { $0.privacyRedactedForReport() }
+        return redacted
+    }
 }
 
 public struct TokenUsageReport: Codable, Equatable, Sendable {
@@ -318,6 +439,15 @@ public struct TokenUsageReport: Codable, Equatable, Sendable {
         self.sessionStartedAt = sessionStartedAt
         self.statistics = statistics
         self.numericSamples = numericSamples
+    }
+
+    public func privacyRedactedForReport() -> TokenUsageReport {
+        TokenUsageReport(
+            generatedAt: generatedAt,
+            sessionStartedAt: sessionStartedAt,
+            statistics: statistics.privacyRedactedForReport(),
+            numericSamples: numericSamples.map { $0.privacyRedactedForReport() }
+        )
     }
 }
 

@@ -14,14 +14,14 @@ public enum PrivateFileIO {
             try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
         }
         try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
-        try validateOwnerAndMode(url, maxPermissions: 0o700)
+        try validateOwnerAndMode(url, maxPermissions: 0o700, allowMultipleLinks: true)
     }
 
     public static func writePrivateData(_ data: Data, to url: URL) throws {
         try createPrivateDirectory(url.deletingLastPathComponent())
         if FileManager.default.fileExists(atPath: url.path) {
             try validateNoSymlink(url, expectedDirectory: false)
-            try validateOwnerAndMode(url, maxPermissions: 0o600)
+            try validateOwnerAndMode(url, maxPermissions: 0o600, allowMultipleLinks: false)
         }
         do {
             try data.write(to: url, options: [.atomic, .completeFileProtection])
@@ -30,7 +30,7 @@ public enum PrivateFileIO {
         }
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         try validateNoSymlink(url, expectedDirectory: false)
-        try validateOwnerAndMode(url, maxPermissions: 0o600)
+        try validateOwnerAndMode(url, maxPermissions: 0o600, allowMultipleLinks: false)
     }
 
     public static func writePrivateString(_ string: String, to url: URL) throws {
@@ -53,11 +53,20 @@ public enum PrivateFileIO {
         }
     }
 
-    private static func validateOwnerAndMode(_ url: URL, maxPermissions: Int) throws {
+    private static func validateOwnerAndMode(
+        _ url: URL,
+        maxPermissions: Int,
+        allowMultipleLinks: Bool
+    ) throws {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         let owner = attributes[.ownerAccountID] as? NSNumber
         guard owner?.uint32Value == getuid() else {
             throw privateFileError("\(url.path) is not owned by the current user.")
+        }
+        if !allowMultipleLinks,
+           let referenceCount = attributes[.referenceCount] as? NSNumber,
+           referenceCount.intValue > 1 {
+            throw privateFileError("\(url.path) must not have multiple hard links.")
         }
         guard let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue else {
             throw privateFileError("\(url.path) permissions could not be verified.")

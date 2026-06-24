@@ -147,7 +147,7 @@ public final class TokenUsageEngine: @unchecked Sendable {
     }
 
     public func writeMarkdownReport(to destinationURL: URL) throws {
-        let report = report()
+        let report = report().privacyRedactedForReport()
         let stats = report.statistics
         let text = """
         # TODEX Usage Report

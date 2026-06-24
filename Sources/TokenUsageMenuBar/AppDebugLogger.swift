@@ -1,4 +1,5 @@
 import Foundation
+import TokenUsageCore
 
 enum AppDebugLogger {
     private static let maxLogBytes: UInt64 = 512 * 1024
@@ -58,7 +59,7 @@ enum AppDebugLogger {
                 withTemplate: template
             )
         }
-        return output
+        return TokenReportPrivacy.redactSensitivePaths(in: output)
     }
 
     private static func rotateIfNeeded() {
