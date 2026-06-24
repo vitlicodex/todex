@@ -10,11 +10,12 @@ final class TokenMenuHeaderView: NSView {
     private var calendarView: UsageCalendarMenuView?
 
     private static let viewWidth: CGFloat = 372
-    private static let cardInset: CGFloat = 8
-    private static let headerHeight: CGFloat = 138
-    private static let usageStripHeight: CGFloat = 70
-    private static let calendarGap: CGFloat = 2
+    private static let cardInset: CGFloat = 6
+    private static let headerHeight: CGFloat = 118
+    private static let usageStripHeight: CGFloat = 54
+    private static let calendarGap: CGFloat = 0
     private static let usageGreen = NSColor(calibratedRed: 0.30, green: 0.92, blue: 0.48, alpha: 1)
+    private static let usageAmber = NSColor(calibratedRed: 1.0, green: 0.72, blue: 0.30, alpha: 1)
 
     init(
         statistics: TokenUsageStatistics,
@@ -32,7 +33,8 @@ final class TokenMenuHeaderView: NSView {
             statistics: statistics,
             scope: usageCalendarScope,
             drawsCardBackground: false,
-            showsSubtitle: false
+            showsSubtitle: false,
+            compactMode: true
         ) { [weak self] scope in
             guard let self else { return }
             self.usageCalendarScope = scope
@@ -94,15 +96,15 @@ final class TokenMenuHeaderView: NSView {
     private func usageStripRect(in card: NSRect) -> NSRect {
         let calendarTop = (calendarView?.frame.maxY ?? card.minY) + Self.calendarGap
         return NSRect(
-            x: card.minX + 14,
+            x: card.minX + 12,
             y: calendarTop,
-            width: card.width - 28,
-            height: Self.usageStripHeight - 8
+            width: card.width - 24,
+            height: Self.usageStripHeight - 4
         )
     }
 
     private func drawCard(in rect: NSRect) {
-        let path = NSBezierPath(roundedRect: rect, xRadius: 18, yRadius: 18)
+        let path = NSBezierPath(roundedRect: rect, xRadius: 16, yRadius: 16)
         NSGradient(colors: [
             NSColor(calibratedRed: 0.09, green: 0.10, blue: 0.12, alpha: 0.98),
             NSColor(calibratedRed: 0.16, green: 0.18, blue: 0.22, alpha: 0.98)
@@ -118,51 +120,52 @@ final class TokenMenuHeaderView: NSView {
         let color = statusColor(display.primaryStatus)
         color.setFill()
         NSBezierPath(
-            roundedRect: NSRect(x: rect.minX + 18, y: rect.maxY - 64, width: 5, height: 36),
+            roundedRect: NSRect(x: rect.minX + 17, y: rect.maxY - 54, width: 5, height: 32),
             xRadius: 2.5,
             yRadius: 2.5
         ).fill()
 
         drawText(
             display.headerTitle,
-            rect: NSRect(x: rect.minX + 34, y: rect.maxY - 40, width: 170, height: 18),
-            size: 11,
+            rect: NSRect(x: rect.minX + 32, y: rect.maxY - 34, width: 170, height: 16),
+            size: 10.5,
             weight: .bold,
             color: NSColor.white.withAlphaComponent(0.62)
         )
         drawText(
             display.primaryTokenText,
-            rect: NSRect(x: rect.minX + 34, y: rect.maxY - 76, width: 150, height: 36),
-            size: 30,
+            rect: NSRect(x: rect.minX + 32, y: rect.maxY - 69, width: 155, height: 34),
+            size: 28,
             weight: .semibold,
             color: .white,
             monospacedDigits: true
         )
         drawBadge(
-            text: display.statusBadgeText,
+            text: dashboardStatusText(display.primaryStatus),
             color: color,
-            rect: NSRect(x: rect.maxX - 94, y: rect.maxY - 48, width: 74, height: 23)
+            rect: NSRect(x: rect.maxX - 99, y: rect.maxY - 45, width: 80, height: 22)
         )
     }
 
     private func drawMetrics(in rect: NSRect) {
         let display = TokenUsageUIDisplay(statistics: statistics, calendarScope: usageCalendarScope)
-        let y = rect.minY + 16
-        let width = (rect.width - 56) / 3
+        let y = rect.minY + 8
+        let gap: CGFloat = 8
+        let width = (rect.width - 32 - gap * 2) / 3
         drawMetric(
             title: "LAST 10",
             value: display.last10PromptAverageText,
-            rect: NSRect(x: rect.minX + 18, y: y, width: width, height: 43)
+            rect: NSRect(x: rect.minX + 16, y: y, width: width, height: 39)
         )
         drawMetric(
             title: "REQUESTS",
             value: display.primaryRequestText,
-            rect: NSRect(x: rect.minX + 28 + width, y: y, width: width, height: 43)
+            rect: NSRect(x: rect.minX + 16 + width + gap, y: y, width: width, height: 39)
         )
         drawMetric(
             title: "COST",
             value: display.monthlyCostText,
-            rect: NSRect(x: rect.minX + 38 + width * 2, y: y, width: width, height: 43)
+            rect: NSRect(x: rect.minX + 16 + (width + gap) * 2, y: y, width: width, height: 39)
         )
     }
 
@@ -176,15 +179,15 @@ final class TokenMenuHeaderView: NSView {
 
         drawText(
             title,
-            rect: NSRect(x: rect.minX + 10, y: rect.maxY - 18, width: rect.width - 20, height: 12),
-            size: 8,
+            rect: NSRect(x: rect.minX + 10, y: rect.maxY - 16, width: rect.width - 20, height: 11),
+            size: 7.5,
             weight: .bold,
             color: NSColor.white.withAlphaComponent(0.48)
         )
         drawText(
             value,
-            rect: NSRect(x: rect.minX + 10, y: rect.minY + 7, width: rect.width - 20, height: 20),
-            size: 15,
+            rect: NSRect(x: rect.minX + 10, y: rect.minY + 6, width: rect.width - 20, height: 18),
+            size: 14,
             weight: .semibold,
             color: .white,
             monospacedDigits: true
@@ -205,7 +208,7 @@ final class TokenMenuHeaderView: NSView {
             drawUsageChip(
                 title: item.0,
                 summary: item.1,
-                rect: NSRect(x: x, y: rect.minY + 8, width: width, height: rect.height - 12)
+                rect: NSRect(x: x, y: rect.minY + 4, width: width, height: rect.height - 8)
             )
         }
     }
@@ -220,23 +223,23 @@ final class TokenMenuHeaderView: NSView {
 
         drawText(
             title,
-            rect: NSRect(x: rect.minX + 10, y: rect.maxY - 18, width: rect.width - 20, height: 11),
-            size: 7.5,
+            rect: NSRect(x: rect.minX + 10, y: rect.maxY - 15, width: rect.width - 20, height: 10),
+            size: 7,
             weight: .bold,
             color: NSColor.white.withAlphaComponent(0.42)
         )
         drawText(
             TokenUsageUIDisplay.compact(summary.totalTokens),
-            rect: NSRect(x: rect.minX + 10, y: rect.minY + 18, width: rect.width - 20, height: 19),
-            size: 14,
+            rect: NSRect(x: rect.minX + 10, y: rect.minY + 14, width: rect.width - 20, height: 17),
+            size: 13,
             weight: .semibold,
             color: summary.totalTokens > 0 ? Self.usageGreen : NSColor.white.withAlphaComponent(0.36),
             monospacedDigits: true
         )
         drawText(
             "\(summary.requests) req",
-            rect: NSRect(x: rect.minX + 10, y: rect.minY + 6, width: rect.width - 20, height: 10),
-            size: 7.5,
+            rect: NSRect(x: rect.minX + 10, y: rect.minY + 4, width: rect.width - 20, height: 9),
+            size: 7,
             weight: .medium,
             color: NSColor.white.withAlphaComponent(0.35),
             monospacedDigits: true
@@ -245,12 +248,23 @@ final class TokenMenuHeaderView: NSView {
 
     private func drawBadge(text: String, color: NSColor, rect: NSRect) {
         let path = NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2)
-        color.withAlphaComponent(0.17).setFill()
+        color.withAlphaComponent(0.12).setFill()
         path.fill()
-        color.withAlphaComponent(0.68).setStroke()
+        color.withAlphaComponent(0.55).setStroke()
         path.lineWidth = 1
         path.stroke()
-        drawText(text, rect: rect.insetBy(dx: 6, dy: 3), size: 10, weight: .bold, color: color, alignment: .center)
+        drawText(text, rect: rect.insetBy(dx: 6, dy: 3), size: 9.5, weight: .bold, color: color, alignment: .center)
+    }
+
+    private func dashboardStatusText(_ status: TokenUsageStatus) -> String {
+        switch status {
+        case .ok:
+            return "OK"
+        case .warning:
+            return "WATCH"
+        case .highUsage:
+            return "HIGH USE"
+        }
     }
 
     private func drawText(
@@ -281,11 +295,11 @@ final class TokenMenuHeaderView: NSView {
     private func statusColor(_ status: TokenUsageStatus) -> NSColor {
         switch status {
         case .ok:
-            return .systemGreen
+            return Self.usageGreen
         case .warning:
-            return .systemYellow
+            return NSColor(calibratedRed: 0.95, green: 0.74, blue: 0.28, alpha: 1)
         case .highUsage:
-            return .systemRed
+            return Self.usageAmber
         }
     }
 }

@@ -26,7 +26,7 @@ public struct TokenUsageUIDisplay: Equatable, Sendable {
     ) {
         let primaryUsage = statistics.primaryDisplayUsage
         let primaryStatus = statistics.primaryDisplayStatus
-        self.headerTitle = "TODEX TODAY"
+        self.headerTitle = "TODAY"
         self.primaryTokenText = Self.compact(primaryUsage.totalTokens)
         self.primaryRequestText = "\(primaryUsage.requests)"
         self.primaryStatus = primaryStatus

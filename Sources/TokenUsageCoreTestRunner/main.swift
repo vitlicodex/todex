@@ -386,7 +386,7 @@ private func testUIDisplayModelCoversHeaderMenuAndCalendarData() throws {
     let weekDisplay = TokenUsageUIDisplay(statistics: stats, calendarScope: .week, now: now, calendar: calendar)
     let monthDisplay = TokenUsageUIDisplay(statistics: stats, calendarScope: .month, now: now, calendar: calendar)
 
-    expectEqual(weekDisplay.headerTitle, "TODEX TODAY", "Header title should state the primary UI scope.")
+    expectEqual(weekDisplay.headerTitle, "TODAY", "Header title should state the primary UI scope.")
     expectEqual(weekDisplay.primaryTokenText, "175", "Header token text should use today's tokens.")
     expectEqual(weekDisplay.primaryRequestText, "2", "Header request text should use today's requests.")
     expectEqual(weekDisplay.primaryStatus, stats.primaryDisplayStatus, "Header status should use primary display status.")

@@ -8,11 +8,14 @@ final class UsageCalendarMenuView: NSView {
     private let onScopeChange: (UsageCalendarScope) -> Void
     private let drawsCardBackground: Bool
     private let showsSubtitle: Bool
+    private let compactMode: Bool
     private let segmentedControl: NSSegmentedControl
     private let calendar = Calendar.current
     private static let viewWidth: CGFloat = 372
     private static let weekViewHeight: CGFloat = 166
     private static let monthViewHeight: CGFloat = 278
+    private static let compactWeekViewHeight: CGFloat = 132
+    private static let compactMonthViewHeight: CGFloat = 250
     private static let usageGreen = NSColor(calibratedRed: 0.30, green: 0.92, blue: 0.48, alpha: 1)
     private static let peakGold = NSColor(calibratedRed: 1.0, green: 0.76, blue: 0.24, alpha: 1)
 
@@ -21,6 +24,7 @@ final class UsageCalendarMenuView: NSView {
         scope: UsageCalendarScope,
         drawsCardBackground: Bool = true,
         showsSubtitle: Bool = true,
+        compactMode: Bool = false,
         onScopeChange: @escaping (UsageCalendarScope) -> Void
     ) {
         self.statistics = statistics
@@ -28,8 +32,9 @@ final class UsageCalendarMenuView: NSView {
         self.onScopeChange = onScopeChange
         self.drawsCardBackground = drawsCardBackground
         self.showsSubtitle = showsSubtitle
+        self.compactMode = compactMode
         self.segmentedControl = NSSegmentedControl(labels: ["Week", "Month"], trackingMode: .selectOne, target: nil, action: nil)
-        super.init(frame: NSRect(x: 0, y: 0, width: Self.viewWidth, height: Self.viewHeight(for: scope)))
+        super.init(frame: NSRect(x: 0, y: 0, width: Self.viewWidth, height: Self.viewHeight(for: scope, compactMode: compactMode)))
 
         segmentedControl.segmentStyle = .roundRect
         segmentedControl.target = self
@@ -44,6 +49,7 @@ final class UsageCalendarMenuView: NSView {
         self.onScopeChange = { _ in }
         self.drawsCardBackground = true
         self.showsSubtitle = true
+        self.compactMode = false
         self.segmentedControl = NSSegmentedControl(labels: ["Week", "Month"], trackingMode: .selectOne, target: nil, action: nil)
         super.init(coder: coder)
     }
@@ -52,25 +58,30 @@ final class UsageCalendarMenuView: NSView {
         let nextScope: UsageCalendarScope = sender.selectedSegment == 1 ? .month : .week
         guard nextScope != scope else { return }
         scope = nextScope
-        setFrameSize(NSSize(width: Self.viewWidth, height: Self.viewHeight(for: nextScope)))
+        setFrameSize(NSSize(width: Self.viewWidth, height: Self.viewHeight(for: nextScope, compactMode: compactMode)))
         layoutSegmentedControl()
         needsDisplay = true
         onScopeChange(nextScope)
     }
 
-    private static func viewHeight(for scope: UsageCalendarScope) -> CGFloat {
-        scope == .week ? weekViewHeight : monthViewHeight
+    private static func viewHeight(for scope: UsageCalendarScope, compactMode: Bool) -> CGFloat {
+        if compactMode {
+            return scope == .week ? compactWeekViewHeight : compactMonthViewHeight
+        }
+        return scope == .week ? weekViewHeight : monthViewHeight
     }
 
     private func layoutSegmentedControl() {
         segmentedControl.selectedSegment = scope == .week ? 0 : 1
-        segmentedControl.frame = NSRect(x: 220, y: bounds.height - 33, width: 132, height: 24)
+        segmentedControl.frame = compactMode
+            ? NSRect(x: 226, y: bounds.height - 30, width: 124, height: 23)
+            : NSRect(x: 220, y: bounds.height - 33, width: 132, height: 24)
     }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        let card = bounds.insetBy(dx: 10, dy: 8)
+        let card = bounds.insetBy(dx: 10, dy: compactMode ? 6 : 8)
         if drawsCardBackground {
             drawCard(in: card)
         }
@@ -96,8 +107,8 @@ final class UsageCalendarMenuView: NSView {
         let display = calendarDisplay()
         drawText(
             display.title,
-            rect: NSRect(x: rect.minX + 14, y: rect.maxY - 30, width: 160, height: 18),
-            size: 13,
+            rect: NSRect(x: rect.minX + 14, y: rect.maxY - (compactMode ? 26 : 30), width: 160, height: 18),
+            size: compactMode ? 12 : 13,
             weight: .semibold,
             color: .white
         )
@@ -113,7 +124,12 @@ final class UsageCalendarMenuView: NSView {
 
     private func drawWeek(in rect: NSRect) {
         let display = calendarDisplay()
-        let grid = NSRect(x: rect.minX + 14, y: rect.minY + 18, width: rect.width - 28, height: 70)
+        let grid = NSRect(
+            x: rect.minX + 14,
+            y: rect.minY + (compactMode ? 12 : 18),
+            width: rect.width - 28,
+            height: compactMode ? 60 : 70
+        )
         let cellWidth = grid.width / 7
 
         for (index, day) in display.days.enumerated() {
@@ -125,7 +141,12 @@ final class UsageCalendarMenuView: NSView {
 
     private func drawMonth(in rect: NSRect) {
         let display = calendarDisplay()
-        let grid = NSRect(x: rect.minX + 14, y: rect.minY + 20, width: rect.width - 28, height: 188)
+        let grid = NSRect(
+            x: rect.minX + 14,
+            y: rect.minY + (compactMode ? 18 : 20),
+            width: rect.width - 28,
+            height: compactMode ? 164 : 188
+        )
         let cellWidth = grid.width / 7
         let cellHeight = grid.height / 6
 
