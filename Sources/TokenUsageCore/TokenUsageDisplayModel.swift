@@ -122,17 +122,21 @@ public struct UsageCalendarDisplay: Equatable, Sendable {
         let today = calendar.startOfDay(for: now)
         let summaries = Self.summariesByDate(statistics: statistics, today: today, calendar: calendar)
         let days: [Date]
+        let title: String
+        let subtitle: String
 
         switch scope {
         case .week:
             let weekStart = calendar.dateInterval(of: .weekOfYear, for: today)?.start ?? today
             days = (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: weekStart).map(calendar.startOfDay) }
-            self.title = "This Week"
+            title = "This Week"
+            subtitle = "\(TokenUsageUIDisplay.compact(statistics.currentWeekUsage.totalTokens)) week"
         case .month:
             let monthStart = calendar.dateInterval(of: .month, for: today)?.start ?? today
             let firstWeekStart = calendar.dateInterval(of: .weekOfYear, for: monthStart)?.start ?? monthStart
             days = (0..<42).compactMap { calendar.date(byAdding: .day, value: $0, to: firstWeekStart).map(calendar.startOfDay) }
-            self.title = Self.monthTitle(for: today, calendar: calendar)
+            title = Self.monthTitle(for: today, calendar: calendar)
+            subtitle = "\(TokenUsageUIDisplay.compact(statistics.currentMonthUsage.totalTokens)) month"
         }
 
         let dayTokenValues = days.map { day in
@@ -141,7 +145,8 @@ public struct UsageCalendarDisplay: Equatable, Sendable {
         let maxTokens = max(1, dayTokenValues.map(\.totalTokens).max() ?? 0)
 
         self.scope = scope
-        self.subtitle = "\(TokenUsageUIDisplay.compact(statistics.currentMonthUsage.totalTokens)) month"
+        self.title = title
+        self.subtitle = subtitle
         self.maxTokens = maxTokens
         self.days = days.map { day in
             let summary = summaries[day] ?? UsagePeriodSummary(label: Self.dayLabel(for: day), requests: 0)

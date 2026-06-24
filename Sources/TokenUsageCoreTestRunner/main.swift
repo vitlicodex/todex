@@ -359,12 +359,14 @@ private func testUIDisplayModelCoversHeaderMenuAndCalendarData() throws {
     expect(!weekDisplay.usageLogLines.contains { $0.contains("Jun 22") || $0.contains("Daily History") }, "Usage Log should not include older zero rows.")
 
     expectEqual(weekDisplay.calendar.scope, .week, "Week calendar display should use week scope.")
+    expectEqual(weekDisplay.calendar.subtitle, "215 week", "Week calendar subtitle should use week totals.")
     expectEqual(weekDisplay.calendar.days.count, 7, "Week calendar should render seven days.")
     let weekToday = weekDisplay.calendar.days.first { $0.isToday }
     expectEqual(weekToday?.totalTokens, 175, "Week calendar should mark today's token usage.")
     expectEqual(weekToday?.isPeakUsageDay, true, "Week calendar should mark the highest token day as the peak day.")
 
     expectEqual(monthDisplay.calendar.scope, .month, "Month calendar display should use month scope.")
+    expectEqual(monthDisplay.calendar.subtitle, "215 month", "Month calendar subtitle should use month totals.")
     expectEqual(monthDisplay.calendar.days.count, 42, "Month calendar should render a stable six-week grid.")
     let monthToday = monthDisplay.calendar.days.first { $0.isToday }
     expectEqual(monthToday?.totalTokens, 175, "Month calendar should mark today's token usage.")

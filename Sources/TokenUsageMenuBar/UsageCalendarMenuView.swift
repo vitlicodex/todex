@@ -9,7 +9,8 @@ final class UsageCalendarMenuView: NSView {
     private let segmentedControl: NSSegmentedControl
     private let calendar = Calendar.current
     private static let viewWidth: CGFloat = 372
-    private static let viewHeight: CGFloat = 254
+    private static let weekViewHeight: CGFloat = 166
+    private static let monthViewHeight: CGFloat = 278
     private static let usageGreen = NSColor(calibratedRed: 0.30, green: 0.92, blue: 0.48, alpha: 1)
     private static let peakGold = NSColor(calibratedRed: 1.0, green: 0.76, blue: 0.24, alpha: 1)
 
@@ -22,7 +23,7 @@ final class UsageCalendarMenuView: NSView {
         self.scope = scope
         self.onScopeChange = onScopeChange
         self.segmentedControl = NSSegmentedControl(labels: ["Week", "Month"], trackingMode: .selectOne, target: nil, action: nil)
-        super.init(frame: NSRect(x: 0, y: 0, width: Self.viewWidth, height: Self.viewHeight))
+        super.init(frame: NSRect(x: 0, y: 0, width: Self.viewWidth, height: Self.viewHeight(for: scope)))
 
         segmentedControl.segmentStyle = .roundRect
         segmentedControl.target = self
@@ -43,9 +44,14 @@ final class UsageCalendarMenuView: NSView {
         let nextScope: UsageCalendarScope = sender.selectedSegment == 1 ? .month : .week
         guard nextScope != scope else { return }
         scope = nextScope
+        setFrameSize(NSSize(width: Self.viewWidth, height: Self.viewHeight(for: nextScope)))
         layoutSegmentedControl()
         needsDisplay = true
         onScopeChange(nextScope)
+    }
+
+    private static func viewHeight(for scope: UsageCalendarScope) -> CGFloat {
+        scope == .week ? weekViewHeight : monthViewHeight
     }
 
     private func layoutSegmentedControl() {
@@ -96,19 +102,19 @@ final class UsageCalendarMenuView: NSView {
 
     private func drawWeek(in rect: NSRect) {
         let display = calendarDisplay()
-        let grid = NSRect(x: rect.minX + 14, y: rect.minY + 16, width: rect.width - 28, height: 68)
+        let grid = NSRect(x: rect.minX + 14, y: rect.minY + 18, width: rect.width - 28, height: 70)
         let cellWidth = grid.width / 7
 
         for (index, day) in display.days.enumerated() {
             let x = grid.minX + CGFloat(index) * cellWidth
-            let cell = NSRect(x: x + 4, y: grid.minY + 2, width: cellWidth - 8, height: grid.height - 4)
+            let cell = NSRect(x: x + 4, y: grid.minY, width: cellWidth - 8, height: grid.height)
             drawDayCell(day: day, maxTokens: display.maxTokens, rect: cell, showWeekday: true)
         }
     }
 
     private func drawMonth(in rect: NSRect) {
         let display = calendarDisplay()
-        let grid = NSRect(x: rect.minX + 14, y: rect.minY + 14, width: rect.width - 28, height: 174)
+        let grid = NSRect(x: rect.minX + 14, y: rect.minY + 20, width: rect.width - 28, height: 188)
         let cellWidth = grid.width / 7
         let cellHeight = grid.height / 6
 
@@ -176,14 +182,14 @@ final class UsageCalendarMenuView: NSView {
 
         if showWeekday {
             if day.isPeakUsageDay {
-                drawPeakMarker(in: NSRect(x: rect.maxX - 16, y: rect.maxY - 16, width: 11, height: 10))
+                drawPeakMarker(in: NSRect(x: rect.maxX - 13, y: rect.maxY - 34, width: 8, height: 8))
             }
             drawText(
                 day.weekday,
                 rect: NSRect(
                     x: rect.minX + 5,
                     y: rect.maxY - 18,
-                    width: rect.width - (day.isPeakUsageDay ? 24 : 10),
+                    width: rect.width - 10,
                     height: 12
                 ),
                 size: 9,
@@ -193,7 +199,12 @@ final class UsageCalendarMenuView: NSView {
             )
             drawText(
                 "\(day.dayNumber)",
-                rect: NSRect(x: rect.minX + 5, y: rect.maxY - 36, width: rect.width - 10, height: 16),
+                rect: NSRect(
+                    x: rect.minX + 5,
+                    y: rect.maxY - 36,
+                    width: rect.width - (day.isPeakUsageDay ? 24 : 10),
+                    height: 16
+                ),
                 size: 14,
                 weight: .semibold,
                 color: primaryColor,
@@ -219,11 +230,11 @@ final class UsageCalendarMenuView: NSView {
                 "\(day.dayNumber)",
                 rect: NSRect(
                     x: rect.minX + 4,
-                    y: rect.maxY - 15,
-                    width: rect.width - (day.isPeakUsageDay ? 20 : 8),
-                    height: 11
+                    y: rect.maxY - 12,
+                    width: rect.width - 8,
+                    height: 9
                 ),
-                size: 8.5,
+                size: 8,
                 weight: day.isToday ? .bold : .medium,
                 color: primaryColor,
                 alignment: .center,
@@ -232,8 +243,8 @@ final class UsageCalendarMenuView: NSView {
             if day.hasUsage {
                 drawText(
                     calendarTokenText(day.totalTokens),
-                    rect: NSRect(x: rect.minX + 2, y: rect.minY + 2, width: rect.width - 4, height: 10),
-                    size: 7.2,
+                    rect: NSRect(x: rect.minX + 2, y: rect.minY + 3, width: rect.width - 4, height: 8),
+                    size: 7,
                     weight: .semibold,
                     color: secondaryColor,
                     alignment: .center,
