@@ -328,12 +328,32 @@ public final class OpenAIUsageClient: @unchecked Sendable {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let (data, response) = try await session.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let error as URLError where error.code == .timedOut {
+            throw OpenAIUsageError(.apiTimeout)
+        } catch {
+            throw error
+        }
         guard let http = response as? HTTPURLResponse else {
             throw OpenAIUsageError(.apiRequestFailed("Missing HTTP response."))
         }
         guard http.statusCode != 401 && http.statusCode != 403 else {
             throw OpenAIUsageError(.apiUnauthorized)
+        }
+        if http.statusCode == 408 {
+            throw OpenAIUsageError(.apiTimeout)
+        }
+        if http.statusCode == 429 {
+            throw OpenAIUsageError(.apiRateLimited(retryAfter: http.value(forHTTPHeaderField: "Retry-After")))
+        }
+        if http.statusCode == 404 {
+            throw OpenAIUsageError(.apiEndpointUnavailable(http.statusCode))
+        }
+        if (500..<600).contains(http.statusCode) {
+            throw OpenAIUsageError(.apiServerError(http.statusCode))
         }
         guard (200..<300).contains(http.statusCode) else {
             throw OpenAIUsageError(.apiRequestFailed("HTTP \(http.statusCode): \(sanitizedResponseBody(data))"))

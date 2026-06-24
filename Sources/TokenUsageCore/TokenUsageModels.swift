@@ -35,6 +35,10 @@ public enum TokenMonitorIssue: Error, Codable, Equatable, Sendable {
     case apiUnauthorized
     case apiRequestFailed(String)
     case apiResponseInvalid(String)
+    case apiRateLimited(retryAfter: String?)
+    case apiEndpointUnavailable(Int)
+    case apiServerError(Int)
+    case apiTimeout
     case apiKeyLocked
     case sourceTruncated(String, parsedSamples: Int, limit: Int)
 
@@ -60,6 +64,17 @@ public enum TokenMonitorIssue: Error, Codable, Equatable, Sendable {
             return "OpenAI Usage API request failed: \(detail)"
         case .apiResponseInvalid(let detail):
             return "OpenAI Usage API response was invalid: \(detail)"
+        case .apiRateLimited(let retryAfter):
+            if let retryAfter, !retryAfter.isEmpty {
+                return "OpenAI Usage API rate limit reached. Retry after \(retryAfter)."
+            }
+            return "OpenAI Usage API rate limit reached."
+        case .apiEndpointUnavailable(let status):
+            return "OpenAI Usage API endpoint is unavailable or unsupported for this account (HTTP \(status))."
+        case .apiServerError(let status):
+            return "OpenAI Usage API server error (HTTP \(status)). Try again later."
+        case .apiTimeout:
+            return "OpenAI Usage API request timed out."
         case .apiKeyLocked:
             return "OpenAI Admin API key is locked. Unlock with local password plus Touch ID or macOS password."
         case .sourceTruncated(let path, let parsedSamples, let limit):
@@ -69,7 +84,8 @@ public enum TokenMonitorIssue: Error, Codable, Equatable, Sendable {
 
     public func privacyRedactedForReport() -> TokenMonitorIssue {
         switch self {
-        case .codexLogsNotFound, .apiKeyMissing, .apiUnauthorized, .apiKeyLocked:
+        case .codexLogsNotFound, .apiKeyMissing, .apiUnauthorized, .apiKeyLocked,
+             .apiRateLimited, .apiEndpointUnavailable, .apiServerError, .apiTimeout:
             return self
         case .tokenUsageFileMissing(let path):
             return .tokenUsageFileMissing(TokenReportPrivacy.redactedPath(path))

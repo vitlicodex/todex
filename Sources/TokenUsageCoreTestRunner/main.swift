@@ -18,6 +18,12 @@ private func expectEqual<T: Equatable>(_ actual: T, _ expected: T, _ message: St
     }
 }
 
+private func expectApprox(_ actual: Double, _ expected: Double, accuracy: Double = 0.000_001, _ message: String) {
+    if abs(actual - expected) > accuracy {
+        failures.append("\(message). Expected \(expected), got \(actual).")
+    }
+}
+
 private func expectThrows(_ message: String, _ operation: () throws -> Void) {
     do {
         try operation()
@@ -59,6 +65,102 @@ private func sample(
     )
 }
 
+private enum MockOpenAIResponse {
+    case http(status: Int, headers: [String: String] = [:], body: String = "{}")
+    case error(Error)
+}
+
+private final class MockOpenAIURLProtocol: URLProtocol {
+    nonisolated(unsafe) static var responseProvider: ((URLRequest) -> MockOpenAIResponse)?
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let provider = Self.responseProvider else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+
+        switch provider(request) {
+        case .http(let status, let headers, let body):
+            guard let url = request.url,
+                  let response = HTTPURLResponse(
+                    url: url,
+                    statusCode: status,
+                    httpVersion: nil,
+                    headerFields: headers
+                  ) else {
+                client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+                return
+            }
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data(body.utf8))
+            client?.urlProtocolDidFinishLoading(self)
+        case .error(let error):
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
+private final class AsyncResultBox<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: T?
+
+    func set(_ value: T) {
+        lock.lock()
+        self.value = value
+        lock.unlock()
+    }
+
+    func get() -> T? {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+        return value
+    }
+}
+
+private func waitForAsync<T: Sendable>(_ operation: @escaping @Sendable () async -> T) -> T {
+    let semaphore = DispatchSemaphore(value: 0)
+    let box = AsyncResultBox<T>()
+    Task.detached {
+        box.set(await operation())
+        semaphore.signal()
+    }
+    semaphore.wait()
+    return box.get()!
+}
+
+private func openAIStatsForMockedResponse(_ response: MockOpenAIResponse) -> TokenUsageStatistics {
+    MockOpenAIURLProtocol.responseProvider = { _ in response }
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [MockOpenAIURLProtocol.self]
+    let session = URLSession(configuration: configuration)
+    let client = OpenAIUsageClient(
+        session: session,
+        baseURL: URL(string: "https://api.openai.test/v1")!
+    )
+    var settings = MonitorSettings()
+    settings.featureFlags[.costsEndpoint] = false
+    let testSettings = settings
+    return waitForAsync {
+        await client.fetchStatistics(
+            apiKey: "test-key-not-real",
+            settings: testSettings,
+            now: Date(timeIntervalSince1970: 1_783_324_800)
+        )
+    }
+}
+
 private func testParsesOpenAIStyleUsageJSON() {
     let parser = TokenUsageParser()
     let url = URL(fileURLWithPath: "/tmp/usage.json")
@@ -83,6 +185,89 @@ private func testParsesOpenAIStyleUsageJSON() {
     expectEqual(sample.outputTokens, 300, "OpenAI output token count should match.")
     expectEqual(sample.totalTokens, 1500, "OpenAI total token count should match.")
     expectEqual(sample.mode, .real, "OpenAI sample mode should be real.")
+}
+
+private func testOpenAIUsageClientClassifiesHTTPFailures() {
+    let rateLimited = openAIStatsForMockedResponse(
+        .http(status: 429, headers: ["Retry-After": "12"], body: #"{"error":"slow down"}"#)
+    )
+    expectEqual(
+        rateLimited.issues,
+        [.apiRateLimited(retryAfter: "12")],
+        "OpenAI client should classify 429 as a rate-limit issue."
+    )
+
+    let endpointUnavailable = openAIStatsForMockedResponse(
+        .http(status: 404, body: #"{"error":"not found"}"#)
+    )
+    expectEqual(
+        endpointUnavailable.issues,
+        [.apiEndpointUnavailable(404)],
+        "OpenAI client should classify 404 as endpoint unavailable."
+    )
+
+    let serverError = openAIStatsForMockedResponse(
+        .http(status: 503, body: #"{"error":"temporary"}"#)
+    )
+    expectEqual(
+        serverError.issues,
+        [.apiServerError(503)],
+        "OpenAI client should classify 5xx responses as server errors."
+    )
+
+    let timeout = openAIStatsForMockedResponse(.error(URLError(.timedOut)))
+    expectEqual(
+        timeout.issues,
+        [.apiTimeout],
+        "OpenAI client should classify URLSession timeout errors."
+    )
+}
+
+private func testCostEstimatorSeparatesCachedInputAndMultiplier() {
+    let profile = TokenPricingProfile(
+        name: "Test",
+        inputPerMillionUSD: 5,
+        cachedInputPerMillionUSD: 0.5,
+        outputPerMillionUSD: 20,
+        reasoningPerMillionUSD: 10,
+        multiplier: 2
+    )
+
+    let estimate = CostEstimator.estimate(
+        inputTokens: 1_000_000,
+        cachedInputTokens: 200_000,
+        outputTokens: 100_000,
+        reasoningTokens: 50_000,
+        profile: profile
+    )
+
+    expectApprox(estimate.inputCostUSD, 4.0, "Estimator should price only uncached input at input rate.")
+    expectApprox(estimate.cachedInputCostUSD, 0.1, "Estimator should price cached input at cached rate.")
+    expectApprox(estimate.outputCostUSD, 2.0, "Estimator should price output at output rate.")
+    expectApprox(estimate.reasoningCostUSD, 0.5, "Estimator should price reasoning at reasoning rate.")
+    expectApprox(estimate.totalCostUSD, 13.2, "Estimator should apply multiplier after summing component costs.")
+    expectEqual(estimate.pricingProfileName, "Test", "Estimator should preserve pricing profile name for report labels.")
+}
+
+private func testCostEstimatorAggregatesSamples() {
+    let profile = TokenPricingProfile(
+        name: "Aggregate",
+        inputPerMillionUSD: 4,
+        cachedInputPerMillionUSD: 1,
+        outputPerMillionUSD: 8
+    )
+    let estimate = CostEstimator.estimate(
+        samples: [
+            sample(id: "a", timestamp: Date(timeIntervalSince1970: 1), input: 100, cachedInput: 40, output: 10),
+            sample(id: "b", timestamp: Date(timeIntervalSince1970: 2), input: 200, cachedInput: 50, output: 20)
+        ],
+        profile: profile
+    )
+
+    expectApprox(estimate.inputCostUSD, 0.00084, "Estimator should aggregate uncached input from samples.")
+    expectApprox(estimate.cachedInputCostUSD, 0.00009, "Estimator should aggregate cached input from samples.")
+    expectApprox(estimate.outputCostUSD, 0.00024, "Estimator should aggregate output from samples.")
+    expectApprox(estimate.totalCostUSD, 0.00117, "Estimator should total aggregate sample costs.")
 }
 
 private func testCodexTokenCountUsesLastUsageOnly() {
@@ -699,6 +884,9 @@ private func testReportPrivacyRedactsLocalPaths() throws {
 
 private let tests: [(String, () throws -> Void)] = [
     ("OpenAI usage JSON parsing", testParsesOpenAIStyleUsageJSON),
+    ("OpenAI API HTTP error classification", testOpenAIUsageClientClassifiesHTTPFailures),
+    ("Estimated cost cached input pricing", testCostEstimatorSeparatesCachedInputAndMultiplier),
+    ("Estimated cost sample aggregation", testCostEstimatorAggregatesSamples),
     ("Codex token_count parsing", testCodexTokenCountUsesLastUsageOnly),
     ("Parser truncation warning", testParserWarnsWhenSampleLimitTruncatesSource),
     ("Parser same-shaped request preservation", testParserKeepsDistinctRequestsWithSameTimestampAndTokens),
