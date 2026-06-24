@@ -190,7 +190,6 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
 
         menu.addItem(.separator())
         addOverviewSubmenu(to: menu)
-        addUsageLogSubmenu(to: menu)
         addReportsSubmenu(to: menu)
         addPermissionsSubmenu(to: menu)
         addSettingsSecuritySubmenu(to: menu)
@@ -317,8 +316,12 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
             statistics: statistics,
             permissionSnapshot: permissionSnapshot,
             isAPIKeyUnlocked: unlockedAPIKey != nil,
-            hasStoredAPIKey: keyStore.hasStoredKey()
-        )
+            hasStoredAPIKey: keyStore.hasStoredKey(),
+            usageCalendarScope: usageCalendarScope
+        ) { [weak self] scope in
+            self?.usageCalendarScope = scope
+            self?.lastMenuRenderSignature = nil
+        }
         menu.addItem(item)
     }
 
@@ -336,18 +339,6 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
             addDisabled("Monthly cost: \(formatUSD(statistics.monthlyCostUSD))", to: submenu)
             addDisabled("Budget: \(formatBudget())", to: submenu)
         }
-    }
-
-    private func addUsageLogSubmenu(to menu: NSMenu) {
-        let item = NSMenuItem(title: "Usage Log", action: nil, keyEquivalent: "")
-        item.view = UsageLogExpandableMenuView(
-            statistics: statistics,
-            scope: usageCalendarScope
-        ) { [weak self] scope in
-            self?.usageCalendarScope = scope
-            self?.lastMenuRenderSignature = nil
-        }
-        menu.addItem(item)
     }
 
     private func addReportsSubmenu(to menu: NSMenu) {

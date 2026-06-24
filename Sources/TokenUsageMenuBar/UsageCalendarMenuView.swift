@@ -6,6 +6,8 @@ final class UsageCalendarMenuView: NSView {
     private let statistics: TokenUsageStatistics
     private var scope: UsageCalendarScope
     private let onScopeChange: (UsageCalendarScope) -> Void
+    private let drawsCardBackground: Bool
+    private let showsSubtitle: Bool
     private let segmentedControl: NSSegmentedControl
     private let calendar = Calendar.current
     private static let viewWidth: CGFloat = 372
@@ -17,11 +19,15 @@ final class UsageCalendarMenuView: NSView {
     init(
         statistics: TokenUsageStatistics,
         scope: UsageCalendarScope,
+        drawsCardBackground: Bool = true,
+        showsSubtitle: Bool = true,
         onScopeChange: @escaping (UsageCalendarScope) -> Void
     ) {
         self.statistics = statistics
         self.scope = scope
         self.onScopeChange = onScopeChange
+        self.drawsCardBackground = drawsCardBackground
+        self.showsSubtitle = showsSubtitle
         self.segmentedControl = NSSegmentedControl(labels: ["Week", "Month"], trackingMode: .selectOne, target: nil, action: nil)
         super.init(frame: NSRect(x: 0, y: 0, width: Self.viewWidth, height: Self.viewHeight(for: scope)))
 
@@ -36,6 +42,8 @@ final class UsageCalendarMenuView: NSView {
         self.statistics = .empty
         self.scope = .week
         self.onScopeChange = { _ in }
+        self.drawsCardBackground = true
+        self.showsSubtitle = true
         self.segmentedControl = NSSegmentedControl(labels: ["Week", "Month"], trackingMode: .selectOne, target: nil, action: nil)
         super.init(coder: coder)
     }
@@ -63,7 +71,9 @@ final class UsageCalendarMenuView: NSView {
         super.draw(dirtyRect)
 
         let card = bounds.insetBy(dx: 10, dy: 8)
-        drawCard(in: card)
+        if drawsCardBackground {
+            drawCard(in: card)
+        }
         drawTitle(in: card)
         switch scope {
         case .week:
@@ -91,6 +101,7 @@ final class UsageCalendarMenuView: NSView {
             weight: .semibold,
             color: .white
         )
+        guard showsSubtitle else { return }
         drawText(
             display.subtitle,
             rect: NSRect(x: rect.minX + 14, y: rect.maxY - 48, width: 160, height: 14),
