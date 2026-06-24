@@ -181,7 +181,27 @@ private func testPermissionMonitorFlagsBroadPermissions() throws {
 
     expectEqual(snapshot.status, .highUsage, "Broad Codex permissions should classify as high usage risk.")
     expectEqual(snapshot.networkAccess, true, "Permission monitor should detect network access.")
+    expectEqual(snapshot.fileSystemPolicy, "unrestricted", "Permission monitor should detect unrestricted filesystem access.")
     expect(!snapshot.policyViolations.isEmpty, "Broad Codex permissions should produce policy violations.")
+}
+
+private func testPermissionMonitorParsesAlternateTurnContextShapes() throws {
+    let temp = try temporaryDirectory()
+    let sessions = temp
+        .appendingPathComponent(".codex", isDirectory: true)
+        .appendingPathComponent("sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+    let url = sessions.appendingPathComponent("rollout.jsonl")
+    try """
+    {"timestamp":"2026-06-23T10:00:00.000Z","type":"turn_context","payload":{"approval_policy":"never","sandbox_policy":"danger-full-access","permission_profile":"disabled","network":"enabled"}}
+    """.write(to: url, atomically: true, encoding: .utf8)
+
+    let snapshot = CodexPermissionMonitor(homeDirectory: temp).snapshot()
+
+    expectEqual(snapshot.sandboxPolicy, "danger-full-access", "Permission monitor should parse string sandbox policy.")
+    expectEqual(snapshot.permissionProfile, "disabled", "Permission monitor should parse string permission profile.")
+    expectEqual(snapshot.fileSystemPolicy, "unrestricted", "Danger full access should infer unrestricted filesystem access.")
+    expectEqual(snapshot.networkAccess, true, "Permission monitor should parse top-level network metadata.")
 }
 
 private func testPermissionPresetLevelsApplyExpectedRules() {
@@ -206,6 +226,44 @@ private func testPermissionPresetLevelsApplyExpectedRules() {
     expect(settings.isPermissionRuleAllowed(.localSessionMetadataRead), "Locked Down should allow local metadata monitoring.")
     expect(!settings.isPermissionRuleAllowed(.workspaceFileWrite), "Locked Down should block workspace writes.")
     expect(!settings.isPermissionRuleAllowed(.networkAccess), "Locked Down should block network access.")
+}
+
+private func testPermissionPresetWriterUpdatesCodexConfig() throws {
+    let temp = try temporaryDirectory()
+    let codex = temp.appendingPathComponent(".codex", isDirectory: true)
+    try FileManager.default.createDirectory(at: codex, withIntermediateDirectories: true)
+    let configURL = codex.appendingPathComponent("config.toml")
+    try """
+    model = "gpt-5"
+
+    [projects."/tmp/project"]
+    trust_level = "trusted"
+    """.write(to: configURL, atomically: true, encoding: .utf8)
+
+    let writer = CodexPermissionConfigWriter(configURL: configURL)
+    let lockedResult = try writer.applyPreset(.lockedDown)
+    let lockedText = try String(contentsOf: configURL, encoding: .utf8)
+
+    expectEqual(lockedResult.applied.approvalPolicy, "untrusted", "Locked Down should map to untrusted approval.")
+    expectEqual(lockedResult.applied.sandboxMode, "read-only", "Locked Down should map to read-only sandbox.")
+    expect(lockedResult.backupURL != nil, "Applying to an existing config should create a backup.")
+    expect(lockedText.contains(#"approval_policy = "untrusted""#), "Config should contain locked down approval policy.")
+    expect(lockedText.contains(#"sandbox_mode = "read-only""#), "Config should contain locked down sandbox mode.")
+    expect(lockedText.contains("[sandbox_workspace_write]"), "Config should include workspace-write network table.")
+    expect(lockedText.contains("network_access = false"), "Locked Down should disable workspace-write network access.")
+    expect(lockedText.contains(#"[projects."/tmp/project"]"#), "Config writer should preserve project trust sections.")
+
+    _ = try writer.applyPreset(.automation)
+    let automationText = try String(contentsOf: configURL, encoding: .utf8)
+    expectEqual(countOccurrences(of: "approval_policy", in: automationText), 1, "Config writer should update approval policy in place.")
+    expectEqual(countOccurrences(of: "sandbox_mode", in: automationText), 1, "Config writer should update sandbox mode in place.")
+    expect(automationText.contains(#"approval_policy = "never""#), "Automation should set never approval policy.")
+    expect(automationText.contains(#"sandbox_mode = "workspace-write""#), "Automation should set workspace-write sandbox mode.")
+    expect(automationText.contains("network_access = true"), "Automation should enable workspace-write network access.")
+}
+
+private func countOccurrences(of needle: String, in haystack: String) -> Int {
+    haystack.components(separatedBy: needle).count - 1
 }
 
 private func testStoreAggregatesSessionAndTotalStatistics() throws {
@@ -519,7 +577,9 @@ private let tests: [(String, () throws -> Void)] = [
     ("Codex invalid non-token line skipping", testStreamingCodexSessionParserSkipsInvalidNonTokenLines),
     ("Codex project metadata parsing", testCodexSessionParserAttachesProjectMetadata),
     ("Codex permission monitoring", testPermissionMonitorFlagsBroadPermissions),
+    ("Codex permission metadata shapes", testPermissionMonitorParsesAlternateTurnContextShapes),
     ("Permission presets", testPermissionPresetLevelsApplyExpectedRules),
+    ("Permission config writer", testPermissionPresetWriterUpdatesCodexConfig),
     ("Usage store aggregation", testStoreAggregatesSessionAndTotalStatistics),
     ("Usage store project enrichment", testStoreEnrichesExistingSampleProjectMetadata),
     ("Usage store daily history", testStorePersistsDailyHistoryAndProjectBreakdown),

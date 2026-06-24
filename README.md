@@ -164,6 +164,20 @@ The app monitors local Codex permission metadata from:
 
 The menu shows approval policy, sandbox policy, filesystem policy, network access, trusted workspace count, and local policy violations.
 
+TODEX permission presets are an alert policy for the monitor. They compare the current Codex session against the selected risk level and flag violations. They do not silently change the permissions of an already-running Codex Desktop session.
+
+The **Apply Preset to Codex CLI Config** action can write the selected preset to:
+
+```toml
+approval_policy = "..."
+sandbox_mode = "..."
+
+[sandbox_workspace_write]
+network_access = true
+```
+
+That action creates a local backup and affects new Codex CLI sessions after restart. Existing Codex Desktop sessions may continue using their current permission mode until changed in Codex or restarted.
+
 Permission presets:
 
 - **Level 1: Full Access**

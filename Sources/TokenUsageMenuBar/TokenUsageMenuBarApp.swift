@@ -360,8 +360,11 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
     }
 
     private func addPermissionsSubmenu(to menu: NSMenu) {
-        addSubmenu("Codex Permissions", to: menu) { submenu in
+        addSubmenu("Codex Permission Monitor", to: menu) { submenu in
             addDisabled("Monitoring: \(permissionSnapshot.monitoringEnabled ? "on" : "off")", to: submenu)
+            addDisabled("Control: alert policy only", to: submenu)
+            addDisabled("Does not change the running session.", to: submenu)
+            addDisabled("Config apply affects new CLI sessions.", to: submenu)
             addDisabled("Preset: \(permissionPresetTitle())", to: submenu)
             addDisabled("Status: \(permissionStatusLabel(permissionSnapshot.status))", to: submenu)
             addDisabled("Reason: \(permissionSnapshot.statusReason)", to: submenu)
@@ -369,6 +372,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
                 addDisabled("Violations: \(permissionSnapshot.policyViolations.count)", to: submenu)
             }
             submenu.addItem(.separator())
+            addDisabled("Detected Current Session", to: submenu)
             addDisabled("Approval: \(permissionSnapshot.approvalPolicy ?? "unknown")", to: submenu)
             addDisabled("Sandbox: \(permissionSnapshot.sandboxPolicy ?? "unknown")", to: submenu)
             addDisabled("Filesystem: \(permissionSnapshot.fileSystemPolicy ?? "unknown")", to: submenu)
@@ -380,6 +384,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
             submenu.addItem(.separator())
             addAction("Refresh Permissions", #selector(refreshPermissionsNow), to: submenu)
             addAction("Open Codex Config", #selector(openCodexConfig), to: submenu)
+            addAction("Apply Preset to Codex CLI Config...", #selector(applyPermissionPresetToCodexConfig), to: submenu)
             addAction("Reset Permission Policy", #selector(resetCodexPermissionPolicy), to: submenu)
             addAction(
                 settings.isEnabled(.codexPermissionMonitoring) ? "Disable Permission Monitoring" : "Enable Permission Monitoring",
@@ -396,7 +401,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
     }
 
     private func addPermissionPresetSubmenu(to menu: NSMenu) {
-        addSubmenu("Permission Preset", to: menu) { submenu in
+        addSubmenu("Alert Policy Preset", to: menu) { submenu in
             for preset in CodexPermissionPreset.allCases {
                 let item = NSMenuItem(
                     title: "Level \(preset.level): \(preset.title)",
@@ -554,12 +559,12 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
     }
 
     private func addPermissionBundleSubmenus(to menu: NSMenu) {
-        addDisabled("Permission Bundles", to: menu)
+        addDisabled("Alert Policy Bundles", to: menu)
         for bundle in CodexPermissionBundle.allCases {
             addSubmenu(bundle.title, to: menu) { submenu in
                 let bundleAllowed = settings.isPermissionBundleAllowed(bundle)
                 addToggle(
-                    bundleAllowed ? "Bundle Allowed" : "Bundle Disabled",
+                    bundleAllowed ? "Allowed by Alert Policy" : "Disabled by Alert Policy",
                     isOn: bundleAllowed,
                     action: #selector(toggleCodexPermissionBundle(_:)),
                     representedObject: bundle.rawValue,
@@ -661,6 +666,48 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
     @objc private func resetCodexPermissionPolicy() {
         settings.resetPermissionPolicy()
         savePermissionPolicyAndRefresh()
+    }
+
+    @objc private func applyPermissionPresetToCodexConfig() {
+        guard let preset = settings.codexPermissionPreset else {
+            showError("Choose a numbered alert policy preset before applying it to Codex config.")
+            return
+        }
+
+        let configuration = CodexPermissionConfigWriter.cliConfiguration(for: preset)
+        let alert = NSAlert()
+        alert.messageText = "Apply Level \(preset.level): \(preset.title) to Codex CLI config?"
+        alert.informativeText = """
+        This updates ~/.codex/config.toml:
+
+        approval_policy = "\(configuration.approvalPolicy)"
+        sandbox_mode = "\(configuration.sandboxMode)"
+        [sandbox_workspace_write].network_access = \(configuration.workspaceWriteNetworkAccess)
+
+        This affects new Codex CLI sessions after restart. It does not change this already-running Codex Desktop session.
+        """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Apply")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        do {
+            let result = try CodexPermissionConfigWriter().applyPreset(preset)
+            showInfo(
+                """
+                Codex CLI config was updated.
+
+                Config: \(result.configURL.path)
+                Backup: \(result.backupURL?.path ?? "none")
+
+                Start a new Codex session or restart Codex for the config value to be picked up. The current session can still show the old permissions until then.
+                """
+            )
+            refreshPermissionsAsync(logChanges: true, force: true)
+        } catch {
+            showError(error.localizedDescription)
+        }
     }
 
     private func savePermissionPolicyAndRefresh() {
@@ -913,6 +960,16 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         alert.messageText = "TODEX error"
         alert.informativeText = message
         alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+
+    private func showInfo(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = "TODEX"
+        alert.informativeText = message
+        alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()

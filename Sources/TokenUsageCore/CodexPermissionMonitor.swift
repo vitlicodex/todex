@@ -223,15 +223,27 @@ public final class CodexPermissionMonitor: @unchecked Sendable {
         let fileSystemSandbox = payload["file_system_sandbox_policy"] as? [String: Any]
 
         let timestamp = stringValue(object["timestamp"]).flatMap { isoFormatter.date(from: $0) }
+        let sandboxType = stringValue(sandboxPolicy?["type"]) ?? stringValue(payload["sandbox_policy"])
+        let permissionProfileType = stringValue(permissionProfile?["type"]) ?? stringValue(payload["permission_profile"])
+        let fileSystemPolicy = stringValue(profileFileSystem?["type"])
+            ?? stringValue(fileSystemSandbox?["kind"])
+            ?? stringValue(payload["file_system_sandbox_policy"])
+            ?? (sandboxType?.lowercased() == "danger-full-access" ? "unrestricted" : nil)
         let networkFromSandbox = boolValue(sandboxPolicy?["network_access"])
         let networkFromProfile = stringValue(permissionProfile?["network"]).map { $0.lowercased() != "restricted" }
+        let networkFromTopLevel = boolValue(payload["network"])
+            ?? stringValue(payload["network"]).map { $0.lowercased() != "restricted" && $0.lowercased() != "disabled" }
+        let networkAccess = networkFromSandbox
+            ?? networkFromProfile
+            ?? networkFromTopLevel
+            ?? (sandboxType?.lowercased() == "danger-full-access" ? true : nil)
 
         return TurnContextSnapshot(
             approvalPolicy: stringValue(payload["approval_policy"]),
-            sandboxPolicy: stringValue(sandboxPolicy?["type"]),
-            permissionProfile: stringValue(permissionProfile?["type"]),
-            fileSystemPolicy: stringValue(profileFileSystem?["type"]) ?? stringValue(fileSystemSandbox?["kind"]),
-            networkAccess: networkFromSandbox ?? networkFromProfile,
+            sandboxPolicy: sandboxType,
+            permissionProfile: permissionProfileType,
+            fileSystemPolicy: fileSystemPolicy,
+            networkAccess: networkAccess,
             timestamp: timestamp,
             sourcePath: sourceURL.path,
             issues: []
