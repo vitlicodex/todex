@@ -1,0 +1,13 @@
+<svg width="880" height="240" viewBox="0 0 880 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="880" height="240" rx="44" fill="#101722"/>
+  <g font-family="SF Mono, Menlo, Monaco, Consolas, monospace" font-size="116" font-weight="800" letter-spacing="-2">
+    <text x="72" y="158" fill="#E8F3FF">T</text>
+    <text x="286" y="158" fill="#E8F3FF">DEX</text>
+  </g>
+  <circle cx="202" cy="116" r="48" stroke="#E8F3FF" stroke-width="16"/>
+  <path d="M168 151A48 48 0 0 0 238 148" stroke="#4CB3FF" stroke-width="16" stroke-linecap="round"/>
+  <path d="M222 78L230 56L242 72L254 52L266 72L278 56L286 78L281 88H227L222 78Z" fill="#F6C453"/>
+  <path d="M227 88H281" stroke="#FFF2B2" stroke-width="3" stroke-linecap="round" opacity="0.45"/>
+  <rect x="72" y="186" width="250" height="8" rx="4" fill="#4CB3FF"/>
+  <rect x="322" y="186" width="86" height="8" rx="4" fill="#F6C453"/>
+</svg>

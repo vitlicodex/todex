@@ -40,9 +40,17 @@ func scaledRect(_ x: CGFloat, _ y: CGFloat, _ width: CGFloat, _ height: CGFloat,
     NSRect(x: x * scale, y: y * scale, width: width * scale, height: height * scale)
 }
 
-func drawText(_ text: String, in rect: NSRect, size: CGFloat, weight: NSFont.Weight, color: NSColor, scale: CGFloat) {
+func drawText(
+    _ text: String,
+    in rect: NSRect,
+    size: CGFloat,
+    weight: NSFont.Weight,
+    color: NSColor,
+    scale: CGFloat,
+    alignment: NSTextAlignment = .center
+) {
     let paragraph = NSMutableParagraphStyle()
-    paragraph.alignment = .center
+    paragraph.alignment = alignment
     paragraph.lineBreakMode = .byTruncatingTail
     let font = NSFont.monospacedSystemFont(ofSize: size * scale, weight: weight)
     NSString(string: text).draw(
@@ -53,6 +61,75 @@ func drawText(_ text: String, in rect: NSRect, size: CGFloat, weight: NSFont.Wei
             .paragraphStyle: paragraph
         ]
     )
+}
+
+func drawCrown(in rect: NSRect, fill: NSColor) {
+    let path = NSBezierPath()
+    path.move(to: NSPoint(x: rect.minX + rect.width * 0.08, y: rect.minY + rect.height * 0.25))
+    path.line(to: NSPoint(x: rect.minX + rect.width * 0.20, y: rect.maxY - rect.height * 0.10))
+    path.line(to: NSPoint(x: rect.minX + rect.width * 0.40, y: rect.minY + rect.height * 0.46))
+    path.line(to: NSPoint(x: rect.midX, y: rect.maxY - rect.height * 0.02))
+    path.line(to: NSPoint(x: rect.minX + rect.width * 0.60, y: rect.minY + rect.height * 0.46))
+    path.line(to: NSPoint(x: rect.minX + rect.width * 0.80, y: rect.maxY - rect.height * 0.10))
+    path.line(to: NSPoint(x: rect.maxX - rect.width * 0.08, y: rect.minY + rect.height * 0.25))
+    path.line(to: NSPoint(x: rect.maxX - rect.width * 0.14, y: rect.minY + rect.height * 0.05))
+    path.line(to: NSPoint(x: rect.minX + rect.width * 0.14, y: rect.minY + rect.height * 0.05))
+    path.close()
+
+    fill.setFill()
+    path.fill()
+    color(0xfff2b2, alpha: 0.42).setStroke()
+    path.lineWidth = max(0.7, rect.width * 0.025)
+    path.stroke()
+}
+
+func drawWordmark(scale: CGFloat) {
+    let primary = color(0xf6f8fb)
+    let green = color(0x58f29a)
+    let gold = color(0xf6c453)
+    let shadow = NSShadow()
+    shadow.shadowColor = NSColor.black.withAlphaComponent(0.28)
+    shadow.shadowBlurRadius = 22 * scale
+    shadow.shadowOffset = NSSize(width: 0, height: -6 * scale)
+
+    NSGraphicsContext.saveGraphicsState()
+    shadow.set()
+    drawText(
+        "T",
+        in: scaledRect(198, 422, 108, 166, scale),
+        size: 130,
+        weight: .bold,
+        color: primary,
+        scale: scale,
+        alignment: .left
+    )
+    drawText(
+        "DEX",
+        in: scaledRect(444, 422, 360, 166, scale),
+        size: 130,
+        weight: .bold,
+        color: primary,
+        scale: scale,
+        alignment: .left
+    )
+
+    let center = NSPoint(x: 376 * scale, y: 511 * scale)
+    let radius: CGFloat = 58 * scale
+    let ringRect = NSRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
+    let ring = NSBezierPath(ovalIn: ringRect)
+    primary.setStroke()
+    ring.lineWidth = max(2, 18 * scale)
+    ring.stroke()
+
+    let arc = NSBezierPath()
+    arc.appendArc(withCenter: center, radius: radius, startAngle: 215, endAngle: 318)
+    green.setStroke()
+    arc.lineWidth = max(2, 18 * scale)
+    arc.lineCapStyle = .round
+    arc.stroke()
+    NSGraphicsContext.restoreGraphicsState()
+
+    drawCrown(in: scaledRect(414, 565, 80, 58, scale), fill: gold)
 }
 
 func drawIcon(pixels: Int) throws -> NSBitmapImageRep {
@@ -87,75 +164,29 @@ func drawIcon(pixels: Int) throws -> NSBitmapImageRep {
 
     let outer = NSBezierPath(roundedRect: bounds.insetBy(dx: 48 * scale, dy: 48 * scale), xRadius: 218 * scale, yRadius: 218 * scale)
     NSGradient(colors: [
-        color(0x232832),
-        color(0x101319)
+        color(0x27313d),
+        color(0x101419)
     ])?.draw(in: outer, angle: 115)
 
     color(0xffffff, alpha: 0.16).setStroke()
     outer.lineWidth = max(1, 8 * scale)
     outer.stroke()
 
-    let glow = NSBezierPath(ovalIn: scaledRect(376, 164, 512, 512, scale))
-    color(0x42d392, alpha: 0.10).setFill()
+    let glow = NSBezierPath(ovalIn: scaledRect(384, 184, 520, 520, scale))
+    color(0x58f29a, alpha: 0.10).setFill()
     glow.fill()
 
-    let rail = NSBezierPath(roundedRect: scaledRect(178, 198, 32, 628, scale), xRadius: 16 * scale, yRadius: 16 * scale)
+    let halo = NSBezierPath(ovalIn: scaledRect(262, 356, 500, 284, scale))
+    color(0xffffff, alpha: 0.045).setFill()
+    halo.fill()
+
+    drawWordmark(scale: scale)
+
+    let underline = NSBezierPath(roundedRect: scaledRect(278, 366, 470, 18, scale), xRadius: 9 * scale, yRadius: 9 * scale)
     NSGradient(colors: [
-        color(0x44d27f),
-        color(0xf2b84b),
-        color(0xff5a62)
-    ])?.draw(in: rail, angle: 90)
-
-    let railGlow = NSBezierPath(ovalIn: scaledRect(134, 438, 120, 120, scale))
-    color(0x44d27f, alpha: 0.18).setFill()
-    railGlow.fill()
-
-    let card = NSBezierPath(roundedRect: scaledRect(260, 238, 584, 524, scale), xRadius: 72 * scale, yRadius: 72 * scale)
-    color(0xffffff, alpha: 0.07).setFill()
-    card.fill()
-    color(0xffffff, alpha: 0.12).setStroke()
-    card.lineWidth = max(1, 4 * scale)
-    card.stroke()
-
-    drawText(
-        "TODEX",
-        in: scaledRect(282, 468, 540, 164, scale),
-        size: 112,
-        weight: .bold,
-        color: .white,
-        scale: scale
-    )
-
-    drawText(
-        "124k",
-        in: scaledRect(320, 356, 464, 92, scale),
-        size: 72,
-        weight: .semibold,
-        color: color(0xb9c4cf),
-        scale: scale
-    )
-
-    let bars: [(CGFloat, UInt32)] = [
-        (86, 0x44d27f),
-        (130, 0x44d27f),
-        (188, 0xf2b84b),
-        (252, 0xff5a62)
-    ]
-    for (index, item) in bars.enumerated() {
-        let barWidth: CGFloat = 60
-        let x = 334 + CGFloat(index) * 88
-        let bar = NSBezierPath(
-            roundedRect: scaledRect(x, 276, barWidth, item.0, scale),
-            xRadius: 18 * scale,
-            yRadius: 18 * scale
-        )
-        color(item.1, alpha: 0.90).setFill()
-        bar.fill()
-    }
-
-    let shine = NSBezierPath(roundedRect: scaledRect(142, 730, 612, 108, scale), xRadius: 54 * scale, yRadius: 54 * scale)
-    color(0xffffff, alpha: 0.075).setFill()
-    shine.fill()
+        color(0x58f29a, alpha: 0.92),
+        color(0xf6c453, alpha: 0.90)
+    ])?.draw(in: underline, angle: 0)
 
     NSGraphicsContext.restoreGraphicsState()
     return rep

@@ -1,5 +1,7 @@
 # TODEX
 
+<img src="Assets/Brand/todex-logo-graphite.svg" alt="TODEX logo" width="420">
+
 Native macOS menu bar app for monitoring Codex token usage, OpenAI API usage, and local Codex permission risk.
 
 TODEX is built for people who run Codex all day and want a quiet, local-first usage monitor that does not become another heavy desktop app.
@@ -212,6 +214,8 @@ The LaunchAgent is written to:
 ## Documentation
 
 The in-app help is maintained in [Documentation/Help/HELP.md](Documentation/Help/HELP.md).
+
+Brand assets live in [Assets/Brand](Assets/Brand). The logo system uses a simple TODEX wordmark, a token-meter `O`, and a small gold crown accent.
 
 Regenerate help images:
 

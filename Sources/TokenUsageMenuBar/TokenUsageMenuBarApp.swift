@@ -1217,9 +1217,14 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         let content = NSView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 460, height: 224))
         content.autoresizingMask = [.width, .height]
 
+        let iconView = NSImageView(frame: NSRect(x: 24, y: 144, width: 48, height: 48))
+        iconView.image = NSApp.applicationIconImage
+        iconView.imageScaling = .scaleProportionallyUpOrDown
+        content.addSubview(iconView)
+
         let title = NSTextField(labelWithString: "TODEX is running")
         title.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
-        title.frame = NSRect(x: 24, y: 172, width: 412, height: 22)
+        title.frame = NSRect(x: 88, y: 172, width: 348, height: 22)
         content.addSubview(title)
 
         let body = NSTextField(labelWithString: "The main control is the “TODEX” item on the right side of the macOS menu bar. If macOS hides it, use Open Menu here. Closing this window keeps the monitor running in the background.")
@@ -1227,7 +1232,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         body.textColor = .secondaryLabelColor
         body.lineBreakMode = .byWordWrapping
         body.maximumNumberOfLines = 3
-        body.frame = NSRect(x: 24, y: 112, width: 412, height: 48)
+        body.frame = NSRect(x: 88, y: 112, width: 348, height: 48)
         content.addSubview(body)
 
         let openMenuButton = NSButton(title: "Open Menu", target: self, action: #selector(openMenuFromControlWindow(_:)))
