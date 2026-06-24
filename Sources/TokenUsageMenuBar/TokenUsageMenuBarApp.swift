@@ -67,6 +67,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         statusItem.isVisible = true
         updateButton()
         rebuildMenu()
+        showStartupWindow()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             self?.refresh()
         }
@@ -157,6 +158,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         addAdvancedSubmenu(to: menu)
 
         menu.addItem(.separator())
+        addAction("Show Control Window", #selector(showControlWindow), to: menu)
         addAction("Help", #selector(openHelp), to: menu)
         addAction("Quit App", #selector(quit), to: menu)
 
@@ -765,6 +767,20 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         }
     }
 
+    @objc private func showControlWindow() {
+        showStartupWindow()
+    }
+
+    @objc private func openMenuFromControlWindow(_ sender: NSButton) {
+        rebuildMenu()
+        guard let menu = statusItem.menu else {
+            showError("Menu is not ready yet. Try Refresh Now, then Open Menu again.")
+            return
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 6), in: sender)
+    }
+
     @objc private func toggleLaunchAtLogin() {
         do {
             try launchAtLogin.setEnabled(!launchAtLogin.isEnabled)
@@ -1008,8 +1024,15 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
     }
 
     private func showStartupWindow() {
+        if let window = startupWindow {
+            window.center()
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
+
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 190),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 224),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -1018,37 +1041,42 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         window.title = "Codex Token Monitor"
         window.center()
 
-        let content = NSView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 420, height: 190))
+        let content = NSView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 460, height: 224))
         content.autoresizingMask = [.width, .height]
 
         let title = NSTextField(labelWithString: "Codex Token Monitor is running")
         title.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
-        title.frame = NSRect(x: 24, y: 138, width: 372, height: 22)
+        title.frame = NSRect(x: 24, y: 172, width: 412, height: 22)
         content.addSubview(title)
 
-        let body = NSTextField(labelWithString: "Menu bar indicator: “Tok” text near the right side of the menu bar. API key is stored in a local encrypted vault and unlocks with your password plus Touch ID or your Mac password.")
+        let body = NSTextField(labelWithString: "The main control is the “Tok” item on the right side of the macOS menu bar. If macOS hides it, use Open Menu here. Closing this window keeps the monitor running in the background.")
         body.font = NSFont.systemFont(ofSize: 12)
         body.textColor = .secondaryLabelColor
         body.lineBreakMode = .byWordWrapping
-        body.maximumNumberOfLines = 2
-        body.frame = NSRect(x: 24, y: 88, width: 372, height: 38)
+        body.maximumNumberOfLines = 3
+        body.frame = NSRect(x: 24, y: 112, width: 412, height: 48)
         content.addSubview(body)
 
-        let unlockButton = NSButton(title: "Unlock", target: self, action: #selector(unlockAPIKey))
-        unlockButton.frame = NSRect(x: 24, y: 28, width: 88, height: 32)
-        content.addSubview(unlockButton)
+        let openMenuButton = NSButton(title: "Open Menu", target: self, action: #selector(openMenuFromControlWindow(_:)))
+        openMenuButton.keyEquivalent = "\r"
+        openMenuButton.frame = NSRect(x: 24, y: 64, width: 112, height: 32)
+        content.addSubview(openMenuButton)
 
         let keyButton = NSButton(title: "Set API Key", target: self, action: #selector(setAPIKey))
-        keyButton.frame = NSRect(x: 124, y: 28, width: 112, height: 32)
+        keyButton.frame = NSRect(x: 148, y: 64, width: 112, height: 32)
         content.addSubview(keyButton)
 
-        let quitButton = NSButton(title: "Quit", target: self, action: #selector(quit))
-        quitButton.frame = NSRect(x: 248, y: 28, width: 64, height: 32)
-        content.addSubview(quitButton)
+        let helpButton = NSButton(title: "Help", target: self, action: #selector(openHelp))
+        helpButton.frame = NSRect(x: 272, y: 64, width: 76, height: 32)
+        content.addSubview(helpButton)
 
         let closeButton = NSButton(title: "Hide Window", target: window, action: #selector(NSWindow.close))
-        closeButton.frame = NSRect(x: 324, y: 28, width: 88, height: 32)
+        closeButton.frame = NSRect(x: 24, y: 24, width: 112, height: 32)
         content.addSubview(closeButton)
+
+        let quitButton = NSButton(title: "Quit App", target: self, action: #selector(quit))
+        quitButton.frame = NSRect(x: 348, y: 24, width: 88, height: 32)
+        content.addSubview(quitButton)
 
         window.contentView = content
         startupWindow = window

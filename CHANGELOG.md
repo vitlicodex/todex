@@ -9,6 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Added
 
 - Native macOS menu bar token monitor.
+- Launch control window with an Open Menu fallback for crowded menu bars.
 - Local Codex session log token counting.
 - Optional OpenAI Usage API cost monitoring.
 - Encrypted local API key vault with device-owner authentication.

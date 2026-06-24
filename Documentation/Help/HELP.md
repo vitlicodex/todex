@@ -35,6 +35,8 @@ The dropdown is organized around the common workflow:
 - **App Settings**: launch at login.
 - **Advanced**: feature switches, reset, diagnostics.
 
+The app is a background menu bar utility. It does not appear in the Dock or Cmd-Tab. A small control window opens on launch with **Open Menu**, **Set API Key**, **Help**, **Hide Window**, and **Quit App** actions.
+
 ## Token Data Sources
 
 For Codex desktop/session usage, the app reads:
@@ -186,7 +188,7 @@ Launch at Login can only be enabled from the installed `.app` bundle. The Launch
 
 ### I do not see the menu bar item
 
-macOS can hide menu bar items when there is not enough horizontal space. Close or hide other menu bar extras, or use macOS Control Center/Menu Bar settings to free space near the right side of the menu bar.
+macOS can hide menu bar items when there is not enough horizontal space. Launch the app again and press **Open Menu** in the control window, or close/hide other menu bar extras to free space near the right side of the menu bar.
 
 ### The API shows zero dollars or zero requests
 

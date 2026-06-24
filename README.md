@@ -56,6 +56,8 @@ open "$HOME/Applications/Codex Token Menu Bar.app"
 
 The installed app appears in the macOS menu bar. It keeps running until **Quit App** is selected from the dropdown.
 
+The app is a background menu bar utility, so it does not appear in the Dock or Cmd-Tab. A small control window opens on launch with an **Open Menu** button in case macOS hides the menu bar item.
+
 ## Build
 
 ```bash
@@ -76,6 +78,8 @@ The dropdown starts with a compact dashboard and groups everything else by workf
 - **API Key & Security**: unlock, lock, set, clear, clipboard session key.
 - **App Settings**: launch at login.
 - **Advanced**: feature switches, resets, diagnostics.
+
+If the menu bar is crowded, launch the app again and use the control window's **Open Menu** button.
 
 ## Data Sources
 
