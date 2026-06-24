@@ -193,9 +193,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         addUsageLogSubmenu(to: menu)
         addReportsSubmenu(to: menu)
         addPermissionsSubmenu(to: menu)
-        addAPIKeySecuritySubmenu(to: menu)
-        addAppSettingsSubmenu(to: menu)
-        addAdvancedSubmenu(to: menu)
+        addSettingsSecuritySubmenu(to: menu)
 
         menu.addItem(.separator())
         addAction("Show Control Window", #selector(showControlWindow), to: menu)
@@ -428,50 +426,59 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         }
     }
 
-    private func addAPIKeySecuritySubmenu(to menu: NSMenu) {
-        addSubmenu("API Key & Security", to: menu) { submenu in
-            if unlockedAPIKey != nil {
-                addDisabled("API key: unlocked in memory\(apiUnlockRemainingText())", to: submenu)
-            } else if keyStore.hasStoredKey() {
-                addDisabled("API key: locked", to: submenu)
-            } else if settings.isEnabled(.apiUsageSource) {
-                addDisabled("API key: missing", to: submenu)
-            } else {
-                addDisabled("API source: disabled", to: submenu)
-            }
+    private func addSettingsSecuritySubmenu(to menu: NSMenu) {
+        addSubmenu("Settings & Security", to: menu) { submenu in
+            addDisabled("API Key", to: submenu)
+            addAPIKeySecurityItems(to: submenu)
+
             submenu.addItem(.separator())
-            addAction("Unlock API Key...", #selector(unlockAPIKey), to: submenu)
-            addAction("Lock API Key", #selector(lockAPIKey), to: submenu)
-            addAction("Set OpenAI Admin API Key...", #selector(setAPIKey), to: submenu)
-            addAction("Use Clipboard Key for This Session", #selector(useClipboardKeyForSession), to: submenu)
-            addAction("Clear Stored API Key", #selector(clearAPIKey), to: submenu)
+            addDisabled("App", to: submenu)
+            addAppSettingsItems(to: submenu)
+
+            submenu.addItem(.separator())
+            addDisabled("Advanced", to: submenu)
+            addAdvancedItems(to: submenu)
         }
     }
 
-    private func addAppSettingsSubmenu(to menu: NSMenu) {
-        addSubmenu("App Settings", to: menu) { submenu in
-            addToggle(
-                "Launch at Login",
-                isOn: launchAtLogin.isEnabled,
-                action: #selector(toggleLaunchAtLogin),
-                representedObject: "",
-                to: submenu
-            )
+    private func addAPIKeySecurityItems(to menu: NSMenu) {
+        if unlockedAPIKey != nil {
+            addDisabled("API key: unlocked in memory\(apiUnlockRemainingText())", to: menu)
+        } else if keyStore.hasStoredKey() {
+            addDisabled("API key: locked", to: menu)
+        } else if settings.isEnabled(.apiUsageSource) {
+            addDisabled("API key: missing", to: menu)
+        } else {
+            addDisabled("API source: disabled", to: menu)
         }
+        menu.addItem(.separator())
+        addAction("Unlock API Key...", #selector(unlockAPIKey), to: menu)
+        addAction("Lock API Key", #selector(lockAPIKey), to: menu)
+        addAction("Set OpenAI Admin API Key...", #selector(setAPIKey), to: menu)
+        addAction("Use Clipboard Key for This Session", #selector(useClipboardKeyForSession), to: menu)
+        addAction("Clear Stored API Key", #selector(clearAPIKey), to: menu)
     }
 
-    private func addAdvancedSubmenu(to menu: NSMenu) {
-        addSubmenu("Advanced", to: menu) { submenu in
-            addFeatureSwitches(to: submenu)
-            submenu.addItem(.separator())
-            addAction("Reset Session Statistics", #selector(resetSession), to: submenu)
-            addAction("Reset All Statistics...", #selector(resetAll), to: submenu)
-            if !statistics.issues.isEmpty {
-                submenu.addItem(.separator())
-                addDisabled("Diagnostics", to: submenu)
-                for issue in statistics.issues {
-                    addDisabled(issue.message, to: submenu)
-                }
+    private func addAppSettingsItems(to menu: NSMenu) {
+        addToggle(
+            "Launch at Login",
+            isOn: launchAtLogin.isEnabled,
+            action: #selector(toggleLaunchAtLogin),
+            representedObject: "",
+            to: menu
+        )
+    }
+
+    private func addAdvancedItems(to menu: NSMenu) {
+        addFeatureSwitches(to: menu)
+        menu.addItem(.separator())
+        addAction("Reset Session Statistics", #selector(resetSession), to: menu)
+        addAction("Reset All Statistics...", #selector(resetAll), to: menu)
+        if !statistics.issues.isEmpty {
+            menu.addItem(.separator())
+            addDisabled("Diagnostics", to: menu)
+            for issue in statistics.issues {
+                addDisabled(issue.message, to: menu)
             }
         }
     }
