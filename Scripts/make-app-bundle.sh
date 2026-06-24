@@ -29,6 +29,14 @@ if [ -d "$ROOT_DIR/Documentation/Help" ]; then
     cp -R "$ROOT_DIR/Documentation/Help/." "$RESOURCES_DIR/Help/"
 fi
 
+if [ ! -f "$ROOT_DIR/Assets/AppIcon/AppIcon.icns" ]; then
+    swift "$ROOT_DIR/Scripts/generate-app-icon.swift"
+fi
+
+if [ -f "$ROOT_DIR/Assets/AppIcon/AppIcon.icns" ]; then
+    cp "$ROOT_DIR/Assets/AppIcon/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
+fi
+
 cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -40,6 +48,8 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
     <string>CodexTokenMenuBar</string>
     <key>CFBundleIdentifier</key>
     <string>local.codex-token-menubar</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>

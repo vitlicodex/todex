@@ -183,6 +183,12 @@ Regenerate help images:
 swift Scripts/generate-help-images.swift
 ```
 
+Regenerate the macOS app icon:
+
+```bash
+swift Scripts/generate-app-icon.swift
+```
+
 ## Security
 
 See [SECURITY.md](SECURITY.md).

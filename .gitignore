@@ -11,6 +11,7 @@ DerivedData/
 *.zip
 *.tar.gz
 CodexTokenMenuBar.app/
+Assets/AppIcon/AppIcon.iconset/
 
 # Local runtime state
 api-key.vault.json

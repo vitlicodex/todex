@@ -14,6 +14,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Encrypted local API key vault with device-owner authentication.
 - Codex permission monitoring with policy presets.
 - Local help window with bundled documentation.
+- Custom macOS app icon with a reproducible generator.
 - Standalone SwiftPM test runner for core monitoring logic.
 
 ### Security
