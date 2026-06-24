@@ -26,7 +26,7 @@ final class TokenUsageViewModel: ObservableObject {
     }
 
     var indicatorText: String {
-        "Tokens: \(Self.compact(statistics.sessionTokens)) | Last 10: \(Self.compact(Int(statistics.last10PromptsAverage))) | \(statistics.status.rawValue)"
+        "Today: \(Self.compact(statistics.primaryDisplayUsage.totalTokens)) | Last 10: \(Self.compact(Int(statistics.last10PromptsAverage))) | \(statistics.primaryDisplayStatus.rawValue)"
     }
 
     var statusSystemImage: String {

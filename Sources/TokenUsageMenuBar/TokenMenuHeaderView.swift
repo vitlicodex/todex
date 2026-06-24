@@ -51,7 +51,9 @@ final class TokenMenuHeaderView: NSView {
     }
 
     private func drawHeader(in rect: NSRect) {
-        let color = statusColor(statistics.status)
+        let displayUsage = statistics.primaryDisplayUsage
+        let displayStatus = statistics.primaryDisplayStatus
+        let color = statusColor(displayStatus)
         color.setFill()
         NSBezierPath(
             roundedRect: NSRect(x: rect.minX + 18, y: rect.maxY - 64, width: 5, height: 36),
@@ -60,14 +62,14 @@ final class TokenMenuHeaderView: NSView {
         ).fill()
 
         drawText(
-            "CODEX TOKENS",
+            "CODEX TODAY",
             rect: NSRect(x: rect.minX + 34, y: rect.maxY - 40, width: 170, height: 18),
             size: 11,
             weight: .bold,
             color: NSColor.white.withAlphaComponent(0.62)
         )
         drawText(
-            compact(statistics.sessionTokens),
+            compact(displayUsage.totalTokens),
             rect: NSRect(x: rect.minX + 34, y: rect.maxY - 76, width: 150, height: 36),
             size: 30,
             weight: .semibold,
@@ -75,7 +77,7 @@ final class TokenMenuHeaderView: NSView {
             monospacedDigits: true
         )
         drawBadge(
-            text: statusLabel(statistics.status),
+            text: statusLabel(displayStatus),
             color: color,
             rect: NSRect(x: rect.maxX - 94, y: rect.maxY - 48, width: 74, height: 23)
         )
@@ -96,7 +98,7 @@ final class TokenMenuHeaderView: NSView {
         )
         drawMetric(
             title: "REQUESTS",
-            value: "\(statistics.requestCount)",
+            value: "\(statistics.primaryDisplayUsage.requests)",
             rect: NSRect(x: rect.minX + 28 + width, y: y, width: width, height: 45)
         )
         drawMetric(

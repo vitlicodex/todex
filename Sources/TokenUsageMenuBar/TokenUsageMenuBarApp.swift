@@ -119,7 +119,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
                     self.statistics = localStatistics
                     self.updateButton()
                     self.rebuildMenu()
-                    AppDebugLogger.log("local fallback rendered before api refresh tokens=\(localStatistics.sessionTokens) requests=\(localStatistics.requestCount)")
+                    AppDebugLogger.log("local fallback rendered before api refresh todayTokens=\(localStatistics.primaryDisplayUsage.totalTokens) todayRequests=\(localStatistics.primaryDisplayUsage.requests) sessionTokens=\(localStatistics.sessionTokens)")
                 }
             }
 
@@ -136,7 +136,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
                 self.rebuildMenu()
                 self.refreshPermissionsAsync(logChanges: true, force: force)
                 let issueText = nextStatistics.issues.map(\.message).joined(separator: " | ")
-                AppDebugLogger.log("refresh finished tokens=\(nextStatistics.sessionTokens) requests=\(nextStatistics.requestCount) issues=\(nextStatistics.issues.count) \(issueText)")
+                AppDebugLogger.log("refresh finished todayTokens=\(nextStatistics.primaryDisplayUsage.totalTokens) todayRequests=\(nextStatistics.primaryDisplayUsage.requests) sessionTokens=\(nextStatistics.sessionTokens) sessionRequests=\(nextStatistics.requestCount) issues=\(nextStatistics.issues.count) \(issueText)")
             }
         }
     }
@@ -150,7 +150,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
                 self.statistics = cachedStatistics
                 self.updateButton()
                 self.rebuildMenu()
-                AppDebugLogger.log("cached statistics rendered tokens=\(cachedStatistics.sessionTokens) requests=\(cachedStatistics.requestCount)")
+                AppDebugLogger.log("cached statistics rendered todayTokens=\(cachedStatistics.primaryDisplayUsage.totalTokens) todayRequests=\(cachedStatistics.primaryDisplayUsage.requests) sessionTokens=\(cachedStatistics.sessionTokens)")
             }
         }
     }
@@ -159,7 +159,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         guard let button = statusItem.button else { return }
 
         let title = menuBarTitle()
-        let tooltip = "Tokens: \(Self.compact(statistics.sessionTokens)) | Last 10: \(Self.compact(Int(statistics.last10PromptsAverage))) | \(statistics.status.rawValue)"
+        let tooltip = "Today: \(Self.compact(statistics.primaryDisplayUsage.totalTokens)) | Last 10: \(Self.compact(Int(statistics.last10PromptsAverage))) | \(statistics.primaryDisplayStatus.rawValue)"
         let signature = buttonRenderSignature(title: title, tooltip: tooltip)
         guard signature != lastButtonRenderSignature else { return }
         lastButtonRenderSignature = signature
@@ -208,11 +208,11 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         [
             title,
             tooltip,
-            "\(statistics.sessionTokens)",
-            "\(statistics.inputTokens)",
-            "\(statistics.outputTokens)",
-            "\(statistics.requestCount)",
-            statistics.status.rawValue,
+            "\(statistics.primaryDisplayUsage.totalTokens)",
+            "\(statistics.primaryDisplayUsage.inputTokens)",
+            "\(statistics.primaryDisplayUsage.outputTokens)",
+            "\(statistics.primaryDisplayUsage.requests)",
+            statistics.primaryDisplayStatus.rawValue,
             permissionSnapshot.status.rawValue,
             unlockedAPIKey == nil ? "locked" : "unlocked",
             keyStore.hasStoredKey() ? "stored-key" : "no-key"
@@ -893,6 +893,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
     }
 
     @objc private func openMenuFromControlWindow(_ sender: NSButton) {
+        lastMenuRenderSignature = nil
         rebuildMenu()
         guard let menu = statusItem.menu else {
             showError("Menu is not ready yet. Try Refresh Now, then Open Menu again.")
@@ -1585,11 +1586,11 @@ actor TokenRefreshWorker {
         Mode: \(lastStatistics.mode.rawValue)
         Status: \(lastStatistics.status.rawValue)
 
-        - Requests today: \(lastStatistics.requestCount)
-        - Tokens today: \(lastStatistics.sessionTokens)
+        - Requests today: \(lastStatistics.primaryDisplayUsage.requests)
+        - Tokens today: \(lastStatistics.primaryDisplayUsage.totalTokens)
         - Tokens month-to-date: \(lastStatistics.totalTokens)
-        - Input tokens today: \(lastStatistics.inputTokens)
-        - Output tokens today: \(lastStatistics.outputTokens)
+        - Input tokens today: \(lastStatistics.primaryDisplayUsage.inputTokens)
+        - Output tokens today: \(lastStatistics.primaryDisplayUsage.outputTokens)
         - Cached input tokens today: \(lastStatistics.cachedInputTokens)
         - Daily cost: \(lastStatistics.dailyCostUSD.map { String(format: "$%.4f", $0) } ?? "n/a")
         - Monthly cost: \(lastStatistics.monthlyCostUSD.map { String(format: "$%.4f", $0) } ?? "n/a")

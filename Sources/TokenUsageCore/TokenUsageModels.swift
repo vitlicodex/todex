@@ -231,6 +231,17 @@ public struct TokenUsageStatistics: Codable, Equatable, Sendable {
         recentDailyUsage: [],
         todayProjectBreakdown: []
     )
+
+    public var primaryDisplayUsage: UsagePeriodSummary {
+        todayUsage
+    }
+
+    public var primaryDisplayStatus: TokenUsageStatus {
+        TokenUsageStatus.classify(
+            sessionTokens: primaryDisplayUsage.totalTokens,
+            last10Average: last10PromptsAverage
+        )
+    }
 }
 
 public struct TokenUsageReport: Codable, Equatable, Sendable {

@@ -39,6 +39,7 @@ private func sample(
     timestamp: Date,
     input: Int,
     output: Int,
+    sourcePath: String = "/tmp/source.jsonl",
     projectID: String? = nil,
     projectName: String? = nil
 ) -> TokenUsageSample {
@@ -50,7 +51,7 @@ private func sample(
         totalTokens: input + output,
         mode: .real,
         sourceID: "source",
-        sourcePath: "/tmp/source.jsonl",
+        sourcePath: sourcePath,
         projectID: projectID,
         projectName: projectName
     )
@@ -282,6 +283,29 @@ private func testStorePersistsDailyHistoryAndProjectBreakdown() throws {
     )
 }
 
+private func testPrimaryDisplayUsageUsesTodayScope() throws {
+    let temp = try temporaryDirectory()
+    let store = TokenUsageStore(stateURL: temp.appendingPathComponent("stats.json"))
+    let calendar = Calendar.current
+    let todayStart = calendar.startOfDay(for: Date())
+    let today = calendar.date(byAdding: .hour, value: 2, to: todayStart) ?? Date()
+    let activePath = "/tmp/.codex/sessions/active.jsonl"
+    let otherPath = "/tmp/.codex/sessions/other.jsonl"
+
+    try store.resetAll(sessionStartedAt: todayStart)
+    try store.add([
+        sample(id: "active", timestamp: today, input: 100, output: 50, sourcePath: activePath),
+        sample(id: "other", timestamp: today.addingTimeInterval(60), input: 20, output: 5, sourcePath: otherPath)
+    ])
+
+    let stats = store.statistics(activeSourcePath: activePath, issues: [], now: today)
+
+    expectEqual(stats.sessionTokens, 150, "Session tokens should remain scoped to the active Codex source.")
+    expectEqual(stats.todayUsage.totalTokens, 175, "Today usage should include all today's Codex sources.")
+    expectEqual(stats.primaryDisplayUsage.totalTokens, stats.todayUsage.totalTokens, "Primary UI usage should use Today scope.")
+    expectEqual(stats.primaryDisplayUsage.requests, stats.todayUsage.requests, "Primary UI requests should use Today scope.")
+}
+
 private func testStoreDecodesLegacyStateWithoutFingerprints() throws {
     let temp = try temporaryDirectory()
     let url = temp.appendingPathComponent("stats.json")
@@ -431,6 +455,7 @@ private let tests: [(String, () throws -> Void)] = [
     ("Usage store aggregation", testStoreAggregatesSessionAndTotalStatistics),
     ("Usage store project enrichment", testStoreEnrichesExistingSampleProjectMetadata),
     ("Usage store daily history", testStorePersistsDailyHistoryAndProjectBreakdown),
+    ("Primary display usage scope", testPrimaryDisplayUsageUsesTodayScope),
     ("Legacy state migration", testStoreDecodesLegacyStateWithoutFingerprints),
     ("Source fingerprint persistence", testEnginePersistsSourceFingerprintsAcrossRestart),
     ("Incremental source cursor", testEngineUsesIncrementalCursorForAppendedSessionLog),
