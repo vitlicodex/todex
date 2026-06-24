@@ -31,33 +31,22 @@ public final class OpenAIUsageClient: @unchecked Sendable {
         var usage: TokenUsageStatistics
 
         if settings.isEnabled(.costsEndpoint) {
-            async let usageRequest = fetchUsage(apiKey: apiKey, settings: settings, now: now)
-            async let costsRequest = fetchCosts(apiKey: apiKey, settings: settings, now: now)
+            async let usageRequest = captureUsage(apiKey: apiKey, settings: settings, now: now)
+            async let costsRequest = captureCosts(apiKey: apiKey, settings: settings, now: now)
 
-            do {
-                usage = try await usageRequest
-            } catch let error as OpenAIUsageError {
-                issues.append(error.issue)
-                return emptyAPIStatistics(issues: issues)
-            } catch {
-                issues.append(.apiRequestFailed(error.localizedDescription))
-                return emptyAPIStatistics(issues: issues)
+            switch await usageRequest {
+            case .success(let statistics):
+                usage = statistics
+            case .failure(let issue):
+                issues.append(issue)
+                usage = emptyAPIStatistics(issues: issues)
             }
 
-            do {
-                let costs = try await costsRequest
-                usage.dailyCostUSD = costs.dailyCostUSD
-                usage.monthlyCostUSD = costs.monthlyCostUSD
-                usage.budgetUSD = settings.monthlyBudgetUSD
-                if settings.monthlyBudgetUSD > 0, let monthlyCostUSD = costs.monthlyCostUSD {
-                    usage.budgetUsedRatio = monthlyCostUSD / settings.monthlyBudgetUSD
-                }
-                usage.projectBreakdown = mergeCosts(costs.projectCosts, into: usage.projectBreakdown)
-                usage.apiKeyBreakdown = mergeCosts(costs.apiKeyCosts, into: usage.apiKeyBreakdown)
-            } catch let error as OpenAIUsageError {
-                issues.append(error.issue)
-            } catch {
-                issues.append(.apiRequestFailed(error.localizedDescription))
+            switch await costsRequest {
+            case .success(let costs):
+                apply(costs: costs, to: &usage, settings: settings)
+            case .failure(let issue):
+                issues.append(issue)
             }
         } else {
             do {
@@ -74,6 +63,37 @@ public final class OpenAIUsageClient: @unchecked Sendable {
         usage.issues = issues
         usage.status = issues.isEmpty ? classify(statistics: usage, settings: settings) : .warning
         return usage
+    }
+
+    private func captureUsage(
+        apiKey: String,
+        settings: MonitorSettings,
+        now: Date
+    ) async -> Result<TokenUsageStatistics, TokenMonitorIssue> {
+        do {
+            return .success(try await fetchUsage(apiKey: apiKey, settings: settings, now: now))
+        } catch {
+            return .failure(issue(from: error))
+        }
+    }
+
+    private func captureCosts(
+        apiKey: String,
+        settings: MonitorSettings,
+        now: Date
+    ) async -> Result<CostSnapshot, TokenMonitorIssue> {
+        do {
+            return .success(try await fetchCosts(apiKey: apiKey, settings: settings, now: now))
+        } catch {
+            return .failure(issue(from: error))
+        }
+    }
+
+    private func issue(from error: Error) -> TokenMonitorIssue {
+        if let error = error as? OpenAIUsageError {
+            return error.issue
+        }
+        return .apiRequestFailed(error.localizedDescription)
     }
 
     private func emptyAPIStatistics(issues: [TokenMonitorIssue]) -> TokenUsageStatistics {
@@ -129,10 +149,15 @@ public final class OpenAIUsageClient: @unchecked Sendable {
             for result in results {
                 let input = intValue(result["input_tokens"]) + intValue(result["input_audio_tokens"])
                 let output = intValue(result["output_tokens"]) + intValue(result["output_audio_tokens"])
-                let cached = intValue(result["input_cached_tokens"])
+                let cached = intValue(in: result, keys: [
+                    "input_cached_tokens",
+                    "cached_input_tokens",
+                    "inputCachedTokens",
+                    "cachedInputTokens"
+                ])
                 let requests = intValue(result["num_model_requests"])
 
-                accumulateDailyUsage(&dailyUsage, day: bucketDay, input: input, output: output, requests: requests)
+                accumulateDailyUsage(&dailyUsage, day: bucketDay, input: input, cached: cached, output: output, requests: requests)
 
                 if bucketStart >= monthStart {
                     monthlyInput += input
@@ -167,12 +192,13 @@ public final class OpenAIUsageClient: @unchecked Sendable {
 
         let dailyTokens = dailyInput + dailyOutput
         let monthlyTokens = monthlyInput + monthlyOutput
-        let average = monthlyRequests > 0 ? Double(monthlyTokens) / Double(monthlyRequests) : 0
+        let dailyAverage = dailyRequests > 0 ? Double(dailyTokens) / Double(dailyRequests) : 0
         let weekSummary = periodSummary(label: "This week", dailyUsage: dailyUsage, interval: weekInterval)
         let yesterdayUsage = dailyUsage[yesterdayStart] ?? UsagePeriodSummary(label: "Yesterday")
         let todayUsage = UsagePeriodSummary(
             label: "Today",
             inputTokens: dailyInput,
+            cachedInputTokens: dailyCached,
             outputTokens: dailyOutput,
             totalTokens: dailyTokens,
             requests: dailyRequests
@@ -180,6 +206,7 @@ public final class OpenAIUsageClient: @unchecked Sendable {
         let monthUsage = UsagePeriodSummary(
             label: "This month",
             inputTokens: monthlyInput,
+            cachedInputTokens: monthlyCached,
             outputTokens: monthlyOutput,
             totalTokens: monthlyTokens,
             requests: monthlyRequests
@@ -192,11 +219,11 @@ public final class OpenAIUsageClient: @unchecked Sendable {
             totalTokens: monthlyTokens,
             inputTokens: dailyInput,
             outputTokens: dailyOutput,
-            averageTokensPerPrompt: average,
-            last10PromptsAverage: average,
+            averageTokensPerPrompt: dailyAverage,
+            last10PromptsAverage: dailyAverage,
             peakPromptCost: 0,
             mode: .api,
-            status: TokenUsageStatus.classify(sessionTokens: dailyTokens, last10Average: average),
+            status: TokenUsageStatus.classify(sessionTokens: dailyTokens, last10Average: dailyAverage),
             lastUpdatedAt: latestDate,
             activeSourcePath: "https://api.openai.com/v1/organization/usage/completions",
             issues: [],
@@ -214,6 +241,7 @@ public final class OpenAIUsageClient: @unchecked Sendable {
             yesterdayUsage: UsagePeriodSummary(
                 label: "Yesterday",
                 inputTokens: yesterdayUsage.inputTokens,
+                cachedInputTokens: yesterdayUsage.cachedInputTokens,
                 outputTokens: yesterdayUsage.outputTokens,
                 totalTokens: yesterdayUsage.totalTokens,
                 requests: yesterdayUsage.requests
@@ -223,6 +251,17 @@ public final class OpenAIUsageClient: @unchecked Sendable {
             recentDailyUsage: recentDailyUsage(from: dailyUsage, calendar: calendar, todayStart: todayStart),
             todayProjectBreakdown: sortedBreakdown(todayProjectBreakdown)
         )
+    }
+
+    private func apply(costs: CostSnapshot, to usage: inout TokenUsageStatistics, settings: MonitorSettings) {
+        usage.dailyCostUSD = costs.dailyCostUSD
+        usage.monthlyCostUSD = costs.monthlyCostUSD
+        usage.budgetUSD = settings.monthlyBudgetUSD
+        if settings.monthlyBudgetUSD > 0, let monthlyCostUSD = costs.monthlyCostUSD {
+            usage.budgetUsedRatio = monthlyCostUSD / settings.monthlyBudgetUSD
+        }
+        usage.projectBreakdown = mergeCosts(costs.projectCosts, into: usage.projectBreakdown)
+        usage.apiKeyBreakdown = mergeCosts(costs.apiKeyCosts, into: usage.apiKeyBreakdown)
     }
 
     private func fetchCosts(apiKey: String, settings: MonitorSettings, now: Date) async throws -> CostSnapshot {
@@ -384,11 +423,13 @@ public final class OpenAIUsageClient: @unchecked Sendable {
         _ dailyUsage: inout [Date: UsagePeriodSummary],
         day: Date,
         input: Int,
+        cached: Int,
         output: Int,
         requests: Int
     ) {
         var summary = dailyUsage[day] ?? UsagePeriodSummary(label: Self.dayLabel(for: day))
         summary.inputTokens += input
+        summary.cachedInputTokens += cached
         summary.outputTokens += output
         summary.totalTokens += input + output
         summary.requests += requests
@@ -408,6 +449,7 @@ public final class OpenAIUsageClient: @unchecked Sendable {
             return UsagePeriodSummary(
                 label: label,
                 inputTokens: partial.inputTokens + summary.inputTokens,
+                cachedInputTokens: partial.cachedInputTokens + summary.cachedInputTokens,
                 outputTokens: partial.outputTokens + summary.outputTokens,
                 totalTokens: partial.totalTokens + summary.totalTokens,
                 requests: partial.requests + summary.requests
@@ -442,6 +484,7 @@ public final class OpenAIUsageClient: @unchecked Sendable {
                 UsagePeriodSummary(
                     label: label,
                     inputTokens: raw.inputTokens,
+                    cachedInputTokens: raw.cachedInputTokens,
                     outputTokens: raw.outputTokens,
                     totalTokens: raw.totalTokens,
                     requests: raw.requests
@@ -465,6 +508,16 @@ public final class OpenAIUsageClient: @unchecked Sendable {
         if let double = value as? Double { return Int(double) }
         if let number = value as? NSNumber { return number.intValue }
         if let string = value as? String { return Int(string) ?? 0 }
+        return 0
+    }
+
+    private func intValue(in dictionary: [String: Any], keys: [String]) -> Int {
+        for key in keys {
+            let value = intValue(dictionary[key])
+            if value != 0 {
+                return value
+            }
+        }
         return 0
     }
 

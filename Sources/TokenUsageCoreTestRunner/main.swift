@@ -38,6 +38,7 @@ private func sample(
     id: String,
     timestamp: Date,
     input: Int,
+    cachedInput: Int = 0,
     output: Int,
     sourcePath: String = "/tmp/source.jsonl",
     projectID: String? = nil,
@@ -47,6 +48,7 @@ private func sample(
         id: id,
         timestamp: timestamp,
         inputTokens: input,
+        cachedInputTokens: cachedInput,
         outputTokens: output,
         totalTokens: input + output,
         mode: .real,
@@ -96,8 +98,42 @@ private func testCodexTokenCountUsesLastUsageOnly() {
     expectEqual(result.samples.count, 1, "Codex token_count line should produce one sample.")
     guard let sample = result.samples.first else { return }
     expectEqual(sample.inputTokens, 120, "Codex parser should use last input tokens.")
+    expectEqual(sample.cachedInputTokens, 40, "Codex parser should preserve cached input tokens from last usage.")
     expectEqual(sample.outputTokens, 30, "Codex parser should use last output tokens.")
     expectEqual(sample.totalTokens, 150, "Codex parser should use last total tokens.")
+}
+
+private func testParserWarnsWhenSampleLimitTruncatesSource() {
+    let parser = TokenUsageParser(maxSamplesPerFile: 1)
+    let url = URL(fileURLWithPath: "/tmp/.codex/sessions/rollout.jsonl")
+    let data = """
+    {"timestamp":"2026-06-23T10:00:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":12,"output_tokens":3,"total_tokens":15}}}}
+    {"timestamp":"2026-06-23T10:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":8,"output_tokens":2,"total_tokens":10}}}}
+    """.data(using: .utf8)!
+
+    let result = parser.parse(data: data, sourceURL: url, fallbackDate: Date(timeIntervalSince1970: 0))
+
+    expectEqual(result.samples.count, 1, "Parser should respect the configured sample limit.")
+    expectEqual(
+        result.issues,
+        [.sourceTruncated(url.path, parsedSamples: 1, limit: 1)],
+        "Parser should warn when sample limit truncates a source."
+    )
+}
+
+private func testParserKeepsDistinctRequestsWithSameTimestampAndTokens() {
+    let parser = TokenUsageParser()
+    let url = URL(fileURLWithPath: "/tmp/.codex/sessions/rollout.jsonl")
+    let data = """
+    {"timestamp":"2026-06-23T10:00:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":12,"output_tokens":3,"total_tokens":15}}}}
+    {"timestamp":"2026-06-23T10:00:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":12,"output_tokens":3,"total_tokens":15}}}}
+    """.data(using: .utf8)!
+
+    let result = parser.parse(data: data, sourceURL: url, fallbackDate: Date(timeIntervalSince1970: 0))
+
+    expect(result.issues.isEmpty, "Duplicate-shaped token_count lines should parse without issues.")
+    expectEqual(result.samples.count, 2, "Parser should keep distinct requests even when timestamp and token values match.")
+    expectEqual(Set(result.samples.map(\.id)).count, 2, "Distinct same-shaped requests should have line-specific stable ids.")
 }
 
 private func testStreamingCodexSessionParserSkipsPromptLines() throws {
@@ -272,7 +308,7 @@ private func testStoreAggregatesSessionAndTotalStatistics() throws {
     try store.resetAll(sessionStartedAt: Date(timeIntervalSince1970: 1_000))
 
     let old = sample(id: "old", timestamp: Date(timeIntervalSince1970: 900), input: 10, output: 5)
-    let current = sample(id: "current", timestamp: Date(timeIntervalSince1970: 1_100), input: 100, output: 50)
+    let current = sample(id: "current", timestamp: Date(timeIntervalSince1970: 1_100), input: 100, cachedInput: 40, output: 50)
     try store.add([old, current])
 
     let stats = store.statistics(activeSourcePath: "/tmp/events.jsonl", issues: [])
@@ -282,6 +318,7 @@ private func testStoreAggregatesSessionAndTotalStatistics() throws {
     expectEqual(stats.sessionTokens, 150, "Session token count should include current sample only.")
     expectEqual(stats.totalTokens, 165, "Total token count should include all samples.")
     expectEqual(stats.inputTokens, 100, "Session input token count should include current sample only.")
+    expectEqual(stats.cachedInputTokens, 40, "Session cached input token count should include current sample only.")
     expectEqual(stats.outputTokens, 50, "Session output token count should include current sample only.")
     expectEqual(stats.peakPromptCost, 150, "Peak request tokens should match current sample.")
 }
@@ -339,6 +376,38 @@ private func testStorePersistsDailyHistoryAndProjectBreakdown() throws {
         stats.recentDailyUsage.count >= calendar.component(.day, from: now),
         "Recent daily usage should cover the current month for calendar rendering."
     )
+}
+
+private func testStoreDecodesLegacySamplesWithoutCachedInputTokens() throws {
+    let temp = try temporaryDirectory()
+    let url = temp.appendingPathComponent("stats.json")
+    let text = """
+    {
+      "sessionStartedAt": "2026-06-23T09:00:00Z",
+      "samples": [
+        {
+          "id": "legacy",
+          "timestamp": "2026-06-23T10:00:00Z",
+          "inputTokens": 100,
+          "outputTokens": 25,
+          "totalTokens": 125,
+          "mode": "real",
+          "sourceID": "source",
+          "sourcePath": "/tmp/source.jsonl"
+        }
+      ],
+      "seenSampleIDs": ["legacy"],
+      "hasExplicitSessionReset": true
+    }
+    """
+    try text.write(to: url, atomically: true, encoding: .utf8)
+
+    let store = TokenUsageStore(stateURL: url)
+    let stats = store.statistics(activeSourcePath: nil, issues: [], now: ISO8601DateFormatter().date(from: "2026-06-23T12:00:00Z")!)
+
+    expectEqual(store.state.samples.first?.cachedInputTokens, 0, "Legacy samples should decode missing cached input tokens as zero.")
+    expectEqual(stats.cachedInputTokens, 0, "Legacy decoded statistics should default cached input tokens to zero.")
+    expectEqual(stats.todayUsage.totalTokens, 125, "Legacy decoded samples should still contribute to daily usage.")
 }
 
 private func testPrimaryDisplayUsageUsesTodayScope() throws {
@@ -577,6 +646,8 @@ private func testParserRefusesOversizedStructuredJSONFile() throws {
 private let tests: [(String, () throws -> Void)] = [
     ("OpenAI usage JSON parsing", testParsesOpenAIStyleUsageJSON),
     ("Codex token_count parsing", testCodexTokenCountUsesLastUsageOnly),
+    ("Parser truncation warning", testParserWarnsWhenSampleLimitTruncatesSource),
+    ("Parser same-shaped request preservation", testParserKeepsDistinctRequestsWithSameTimestampAndTokens),
     ("Codex session prompt skipping", testStreamingCodexSessionParserSkipsPromptLines),
     ("Codex invalid non-token line skipping", testStreamingCodexSessionParserSkipsInvalidNonTokenLines),
     ("Codex project metadata parsing", testCodexSessionParserAttachesProjectMetadata),
@@ -590,6 +661,7 @@ private let tests: [(String, () throws -> Void)] = [
     ("Primary display usage scope", testPrimaryDisplayUsageUsesTodayScope),
     ("UI display model coverage", testUIDisplayModelCoversHeaderMenuAndCalendarData),
     ("Legacy state migration", testStoreDecodesLegacyStateWithoutFingerprints),
+    ("Legacy cached token migration", testStoreDecodesLegacySamplesWithoutCachedInputTokens),
     ("Source fingerprint persistence", testEnginePersistsSourceFingerprintsAcrossRestart),
     ("Incremental source cursor", testEngineUsesIncrementalCursorForAppendedSessionLog),
     ("Private file symlink refusal", testPrivateFileIORejectsSymlinkDestination),

@@ -203,6 +203,7 @@ public final class TokenUsageStore: @unchecked Sendable {
 
         var sessionTokens = 0
         var inputTokens = 0
+        var cachedInputTokens = 0
         var outputTokens = 0
         var peak = 0
         var hasRealSample = false
@@ -212,6 +213,7 @@ public final class TokenUsageStore: @unchecked Sendable {
         for sample in sessionSamples {
             sessionTokens += sample.totalTokens
             inputTokens += sample.inputTokens
+            cachedInputTokens += sample.cachedInputTokens
             outputTokens += sample.outputTokens
             peak = max(peak, sample.totalTokens)
             hasRealSample = hasRealSample || sample.mode == .real
@@ -246,7 +248,7 @@ public final class TokenUsageStore: @unchecked Sendable {
             lastUpdatedAt: allSamples.last?.timestamp,
             activeSourcePath: activeSourcePath,
             issues: issues,
-            cachedInputTokens: 0,
+            cachedInputTokens: cachedInputTokens,
             requestCount: sessionSamples.count,
             dailyCostUSD: nil,
             monthlyCostUSD: nil,
@@ -316,16 +318,19 @@ public final class TokenUsageStore: @unchecked Sendable {
 
     private func periodSummary(label: String, samples: [TokenUsageSample]) -> UsagePeriodSummary {
         var input = 0
+        var cachedInput = 0
         var output = 0
         var total = 0
         for sample in samples {
             input += sample.inputTokens
+            cachedInput += sample.cachedInputTokens
             output += sample.outputTokens
             total += sample.totalTokens
         }
         return UsagePeriodSummary(
             label: label,
             inputTokens: input,
+            cachedInputTokens: cachedInput,
             outputTokens: output,
             totalTokens: total,
             requests: samples.count
@@ -373,6 +378,7 @@ public final class TokenUsageStore: @unchecked Sendable {
             let label = sample.projectName ?? "Unknown Project"
             var item = breakdown[key] ?? UsageBreakdown(label: label)
             item.inputTokens += sample.inputTokens
+            item.cachedInputTokens += sample.cachedInputTokens
             item.outputTokens += sample.outputTokens
             item.totalTokens += sample.totalTokens
             item.requests += 1

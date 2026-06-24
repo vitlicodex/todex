@@ -191,7 +191,7 @@ public final class TokenUsageParser: @unchecked Sendable {
                 guard samples.count < maxSamplesPerFile else {
                     return TokenUsageFileResult(
                         samples: samples,
-                        issues: [],
+                        issues: [.sourceTruncated(sourceURL.path, parsedSamples: samples.count, limit: maxSamplesPerFile)],
                         parsedBytes: sourceSize(sourceURL),
                         parsedLineCount: lineNumber,
                         projectID: currentProject?.id,
@@ -224,27 +224,30 @@ public final class TokenUsageParser: @unchecked Sendable {
             }
         }
 
-        if !pending.isEmpty && samples.count < maxSamplesPerFile {
-            lineNumber += 1
-            processLineData(
-                pending,
-                lineNumber: lineNumber,
-                onlyTokenCountLines: onlyTokenCountLines,
-                tokenCountNeedle: tokenCountNeedle,
-                turnContextNeedle: turnContextNeedle,
-                sessionMetaNeedle: sessionMetaNeedle,
-                environmentContextNeedle: environmentContextNeedle,
-                sourceURL: sourceURL,
-                sourceID: sourceID,
-                fallbackDate: fallbackDate,
-                currentProject: &currentProject,
-                samples: &samples,
-                sawMalformedJSONLine: &sawMalformedJSONLine,
-                sawInvalidUTF8Line: &sawInvalidUTF8Line
-            )
-        }
-
         var issues: [TokenMonitorIssue] = []
+        if !pending.isEmpty {
+            if samples.count < maxSamplesPerFile {
+                lineNumber += 1
+                processLineData(
+                    pending,
+                    lineNumber: lineNumber,
+                    onlyTokenCountLines: onlyTokenCountLines,
+                    tokenCountNeedle: tokenCountNeedle,
+                    turnContextNeedle: turnContextNeedle,
+                    sessionMetaNeedle: sessionMetaNeedle,
+                    environmentContextNeedle: environmentContextNeedle,
+                    sourceURL: sourceURL,
+                    sourceID: sourceID,
+                    fallbackDate: fallbackDate,
+                    currentProject: &currentProject,
+                    samples: &samples,
+                    sawMalformedJSONLine: &sawMalformedJSONLine,
+                    sawInvalidUTF8Line: &sawInvalidUTF8Line
+                )
+            } else {
+                issues.append(.sourceTruncated(sourceURL.path, parsedSamples: samples.count, limit: maxSamplesPerFile))
+            }
+        }
         if samples.isEmpty {
             if sawInvalidUTF8Line {
                 issues.append(.unreadableSource(sourceURL.path, "File contains invalid UTF-8."))
@@ -269,12 +272,17 @@ public final class TokenUsageParser: @unchecked Sendable {
 
         var samples: [TokenUsageSample] = []
         var sawMalformedJSONLine = false
+        var reachedSampleLimit = false
         let sourceID = StableHash.make(sourceURL.path)
         let onlyTokenCountLines = sourceURL.path.contains("/.codex/sessions/")
         var currentProject: ProjectMetadata?
+        let lines = text.split(whereSeparator: \.isNewline)
 
-        for (index, rawLine) in text.split(whereSeparator: \.isNewline).enumerated() {
-            guard samples.count < maxSamplesPerFile else { break }
+        for (index, rawLine) in lines.enumerated() {
+            guard samples.count < maxSamplesPerFile else {
+                reachedSampleLimit = true
+                break
+            }
             processLine(
                 String(rawLine),
                 lineNumber: index + 1,
@@ -289,6 +297,9 @@ public final class TokenUsageParser: @unchecked Sendable {
         }
 
         var issues: [TokenMonitorIssue] = []
+        if reachedSampleLimit {
+            issues.append(.sourceTruncated(sourceURL.path, parsedSamples: samples.count, limit: maxSamplesPerFile))
+        }
         if samples.isEmpty {
             issues.append(sawMalformedJSONLine ? .invalidJSON(sourceURL.path) : .apiUsageFieldsUnavailable(sourceURL.path))
         }
@@ -296,7 +307,7 @@ public final class TokenUsageParser: @unchecked Sendable {
             samples: samples,
             issues: issues,
             parsedBytes: UInt64(data.count),
-            parsedLineCount: text.split(whereSeparator: \.isNewline).count,
+            parsedLineCount: lines.count,
             projectID: currentProject?.id,
             projectName: currentProject?.name
         )
@@ -438,9 +449,8 @@ public final class TokenUsageParser: @unchecked Sendable {
         )
         var seen = Set<String>()
         return output.filter { sample in
-            let semanticID = "\(sample.sourcePath)|\(sample.timestamp.timeIntervalSince1970)|\(sample.inputTokens)|\(sample.outputTokens)|\(sample.totalTokens)|\(sample.mode.rawValue)"
-            guard !seen.contains(semanticID) else { return false }
-            seen.insert(semanticID)
+            guard !seen.contains(sample.id) else { return false }
+            seen.insert(sample.id)
             return true
         }
     }
@@ -568,6 +578,12 @@ public final class TokenUsageParser: @unchecked Sendable {
         }
 
         let inputTokens = intValue(in: usage, keys: ["input_tokens", "inputTokens"]) ?? 0
+        let cachedInputTokens = intValue(in: usage, keys: [
+            "cached_input_tokens",
+            "input_cached_tokens",
+            "cachedInputTokens",
+            "inputCachedTokens"
+        ]) ?? 0
         let outputTokens = intValue(in: usage, keys: ["output_tokens", "outputTokens"]) ?? 0
         let total = intValue(in: usage, keys: ["total_tokens", "totalTokens"]) ?? (inputTokens + outputTokens)
         guard total > 0 else { return nil }
@@ -576,12 +592,13 @@ public final class TokenUsageParser: @unchecked Sendable {
             ?? timestamp(from: event)
             ?? inheritedTimestamp
             ?? fallbackDate
-        let stableText = "\(sourceURL.path)|\(location)|codex-token-count|\(timestamp.timeIntervalSince1970)|\(inputTokens)|\(outputTokens)|\(total)"
+        let stableText = "\(sourceURL.path)|\(location)|codex-token-count|\(timestamp.timeIntervalSince1970)|\(inputTokens)|\(cachedInputTokens)|\(outputTokens)|\(total)"
 
         return TokenUsageSample(
             id: StableHash.make(stableText),
             timestamp: timestamp,
             inputTokens: inputTokens,
+            cachedInputTokens: cachedInputTokens,
             outputTokens: outputTokens,
             totalTokens: total,
             mode: .real,
@@ -608,6 +625,12 @@ public final class TokenUsageParser: @unchecked Sendable {
             "inputTokens",
             "promptTokens"
         ]) ?? 0
+        let cachedInputTokens = intValue(in: dictionary, keys: [
+            "cached_input_tokens",
+            "input_cached_tokens",
+            "cachedInputTokens",
+            "inputCachedTokens"
+        ]) ?? 0
         let outputTokens = intValue(in: dictionary, keys: [
             "output_tokens",
             "completion_tokens",
@@ -626,11 +649,12 @@ public final class TokenUsageParser: @unchecked Sendable {
         }
 
         let timestamp = timestamp(from: dictionary) ?? inheritedTimestamp ?? fallbackDate
-        let stableText = "\(sourceURL.path)|\(timestamp.timeIntervalSince1970)|\(inputTokens)|\(outputTokens)|\(total)"
+        let stableText = "\(sourceURL.path)|\(location)|\(timestamp.timeIntervalSince1970)|\(inputTokens)|\(cachedInputTokens)|\(outputTokens)|\(total)"
         return TokenUsageSample(
             id: StableHash.make(stableText),
             timestamp: timestamp,
             inputTokens: inputTokens,
+            cachedInputTokens: cachedInputTokens,
             outputTokens: outputTokens,
             totalTokens: total,
             mode: .real,
@@ -655,7 +679,7 @@ public final class TokenUsageParser: @unchecked Sendable {
 
         let estimatedTokens = max(1, Int(ceil(Double(text.utf8.count) / 4.0)))
         let timestamp = timestamp(from: dictionary) ?? inheritedTimestamp ?? fallbackDate
-        let stableText = "\(sourceURL.path)|\(timestamp.timeIntervalSince1970)|estimated|\(estimatedTokens)"
+        let stableText = "\(sourceURL.path)|\(location)|\(timestamp.timeIntervalSince1970)|estimated|\(estimatedTokens)"
 
         return TokenUsageSample(
             id: StableHash.make(stableText),
@@ -704,16 +728,18 @@ public final class TokenUsageParser: @unchecked Sendable {
         currentProject: ProjectMetadata?
     ) -> TokenUsageSample? {
         let input = regexInt(line, pattern: #"(?:input|prompt)[_\s-]*tokens?\s*[:=]\s*([0-9]+)"#) ?? 0
+        let cachedInput = regexInt(line, pattern: #"cached[_\s-]*(?:input[_\s-]*)?tokens?\s*[:=]\s*([0-9]+)"#) ?? 0
         let output = regexInt(line, pattern: #"(?:output|completion)[_\s-]*tokens?\s*[:=]\s*([0-9]+)"#) ?? 0
         let total = regexInt(line, pattern: #"total[_\s-]*tokens?\s*[:=]\s*([0-9]+)"#) ?? (input + output)
 
         guard total > 0 else { return nil }
 
-        let id = StableHash.make("\(sourceURL.path)|line:\(lineNumber)|\(input)|\(output)|\(total)")
+        let id = StableHash.make("\(sourceURL.path)|line:\(lineNumber)|\(input)|\(cachedInput)|\(output)|\(total)")
         return TokenUsageSample(
             id: id,
             timestamp: fallbackDate,
             inputTokens: input,
+            cachedInputTokens: cachedInput,
             outputTokens: output,
             totalTokens: total,
             mode: .real,

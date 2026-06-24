@@ -36,6 +36,7 @@ public enum TokenMonitorIssue: Error, Codable, Equatable, Sendable {
     case apiRequestFailed(String)
     case apiResponseInvalid(String)
     case apiKeyLocked
+    case sourceTruncated(String, parsedSamples: Int, limit: Int)
 
     public var message: String {
         switch self {
@@ -61,6 +62,8 @@ public enum TokenMonitorIssue: Error, Codable, Equatable, Sendable {
             return "OpenAI Usage API response was invalid: \(detail)"
         case .apiKeyLocked:
             return "OpenAI Admin API key is locked. Unlock with local password plus Touch ID or macOS password."
+        case .sourceTruncated(let path, let parsedSamples, let limit):
+            return "Stopped parsing \(path) after \(parsedSamples) token samples (limit \(limit)); usage may be incomplete."
         }
     }
 }
@@ -97,6 +100,7 @@ public struct TokenUsageSample: Codable, Equatable, Sendable {
     public let id: String
     public let timestamp: Date
     public let inputTokens: Int
+    public let cachedInputTokens: Int
     public let outputTokens: Int
     public let totalTokens: Int
     public let mode: UsageMode
@@ -109,6 +113,7 @@ public struct TokenUsageSample: Codable, Equatable, Sendable {
         id: String,
         timestamp: Date,
         inputTokens: Int,
+        cachedInputTokens: Int = 0,
         outputTokens: Int,
         totalTokens: Int,
         mode: UsageMode,
@@ -120,6 +125,7 @@ public struct TokenUsageSample: Codable, Equatable, Sendable {
         self.id = id
         self.timestamp = timestamp
         self.inputTokens = inputTokens
+        self.cachedInputTokens = cachedInputTokens
         self.outputTokens = outputTokens
         self.totalTokens = totalTokens
         self.mode = mode
@@ -134,6 +140,7 @@ public struct TokenUsageSample: Codable, Equatable, Sendable {
             id: id,
             timestamp: timestamp,
             inputTokens: inputTokens,
+            cachedInputTokens: cachedInputTokens,
             outputTokens: outputTokens,
             totalTokens: totalTokens,
             mode: mode,
@@ -143,11 +150,41 @@ public struct TokenUsageSample: Codable, Equatable, Sendable {
             projectName: projectName ?? self.projectName
         )
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case timestamp
+        case inputTokens
+        case cachedInputTokens
+        case outputTokens
+        case totalTokens
+        case mode
+        case sourceID
+        case sourcePath
+        case projectID
+        case projectName
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+        inputTokens = try container.decode(Int.self, forKey: .inputTokens)
+        cachedInputTokens = try container.decodeIfPresent(Int.self, forKey: .cachedInputTokens) ?? 0
+        outputTokens = try container.decode(Int.self, forKey: .outputTokens)
+        totalTokens = try container.decode(Int.self, forKey: .totalTokens)
+        mode = try container.decode(UsageMode.self, forKey: .mode)
+        sourceID = try container.decode(String.self, forKey: .sourceID)
+        sourcePath = try container.decode(String.self, forKey: .sourcePath)
+        projectID = try container.decodeIfPresent(String.self, forKey: .projectID)
+        projectName = try container.decodeIfPresent(String.self, forKey: .projectName)
+    }
 }
 
 public struct UsagePeriodSummary: Codable, Equatable, Sendable {
     public var label: String
     public var inputTokens: Int
+    public var cachedInputTokens: Int
     public var outputTokens: Int
     public var totalTokens: Int
     public var requests: Int
@@ -155,15 +192,36 @@ public struct UsagePeriodSummary: Codable, Equatable, Sendable {
     public init(
         label: String,
         inputTokens: Int = 0,
+        cachedInputTokens: Int = 0,
         outputTokens: Int = 0,
         totalTokens: Int = 0,
         requests: Int = 0
     ) {
         self.label = label
         self.inputTokens = inputTokens
+        self.cachedInputTokens = cachedInputTokens
         self.outputTokens = outputTokens
         self.totalTokens = totalTokens
         self.requests = requests
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case label
+        case inputTokens
+        case cachedInputTokens
+        case outputTokens
+        case totalTokens
+        case requests
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        label = try container.decode(String.self, forKey: .label)
+        inputTokens = try container.decode(Int.self, forKey: .inputTokens)
+        cachedInputTokens = try container.decodeIfPresent(Int.self, forKey: .cachedInputTokens) ?? 0
+        outputTokens = try container.decode(Int.self, forKey: .outputTokens)
+        totalTokens = try container.decode(Int.self, forKey: .totalTokens)
+        requests = try container.decode(Int.self, forKey: .requests)
     }
 }
 
