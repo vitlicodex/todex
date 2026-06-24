@@ -51,9 +51,8 @@ final class TokenMenuHeaderView: NSView {
     }
 
     private func drawHeader(in rect: NSRect) {
-        let displayUsage = statistics.primaryDisplayUsage
-        let displayStatus = statistics.primaryDisplayStatus
-        let color = statusColor(displayStatus)
+        let display = TokenUsageUIDisplay(statistics: statistics)
+        let color = statusColor(display.primaryStatus)
         color.setFill()
         NSBezierPath(
             roundedRect: NSRect(x: rect.minX + 18, y: rect.maxY - 64, width: 5, height: 36),
@@ -62,14 +61,14 @@ final class TokenMenuHeaderView: NSView {
         ).fill()
 
         drawText(
-            "CODEX TODAY",
+            display.headerTitle,
             rect: NSRect(x: rect.minX + 34, y: rect.maxY - 40, width: 170, height: 18),
             size: 11,
             weight: .bold,
             color: NSColor.white.withAlphaComponent(0.62)
         )
         drawText(
-            compact(displayUsage.totalTokens),
+            display.primaryTokenText,
             rect: NSRect(x: rect.minX + 34, y: rect.maxY - 76, width: 150, height: 36),
             size: 30,
             weight: .semibold,
@@ -77,7 +76,7 @@ final class TokenMenuHeaderView: NSView {
             monospacedDigits: true
         )
         drawBadge(
-            text: statusLabel(displayStatus),
+            text: display.statusBadgeText,
             color: color,
             rect: NSRect(x: rect.maxX - 94, y: rect.maxY - 48, width: 74, height: 23)
         )
@@ -89,21 +88,22 @@ final class TokenMenuHeaderView: NSView {
     }
 
     private func drawMetrics(in rect: NSRect) {
+        let display = TokenUsageUIDisplay(statistics: statistics)
         let y = rect.minY + 18
         let width = (rect.width - 56) / 3
         drawMetric(
             title: "LAST 10",
-            value: compact(Int(statistics.last10PromptsAverage)),
+            value: display.last10PromptAverageText,
             rect: NSRect(x: rect.minX + 18, y: y, width: width, height: 45)
         )
         drawMetric(
             title: "REQUESTS",
-            value: "\(statistics.primaryDisplayUsage.requests)",
+            value: display.primaryRequestText,
             rect: NSRect(x: rect.minX + 28 + width, y: y, width: width, height: 45)
         )
         drawMetric(
             title: "COST",
-            value: costText(statistics.monthlyCostUSD),
+            value: display.monthlyCostText,
             rect: NSRect(x: rect.minX + 38 + width * 2, y: y, width: width, height: 45)
         )
     }
@@ -179,38 +179,4 @@ final class TokenMenuHeaderView: NSView {
         }
     }
 
-    private func statusLabel(_ status: TokenUsageStatus) -> String {
-        switch status {
-        case .ok:
-            return "OK"
-        case .warning:
-            return "WARN"
-        case .highUsage:
-            return "HIGH"
-        }
-    }
-
-    private func compact(_ value: Int) -> String {
-        if value >= 1_000_000_000 {
-            return String(format: "%.1fb", Double(value) / 1_000_000_000)
-        }
-        if value >= 1_000_000 {
-            return String(format: "%.1fm", Double(value) / 1_000_000)
-        }
-        if value >= 1_000 {
-            return String(format: "%.0fk", Double(value) / 1_000)
-        }
-        return "\(value)"
-    }
-
-    private func costText(_ value: Double?) -> String {
-        guard let value else { return "n/a" }
-        if value >= 1_000 {
-            return String(format: "$%.1fk", value / 1_000)
-        }
-        if value >= 10 {
-            return String(format: "$%.0f", value)
-        }
-        return String(format: "$%.2f", value)
-    }
 }

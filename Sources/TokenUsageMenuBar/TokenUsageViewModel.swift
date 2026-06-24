@@ -26,11 +26,11 @@ final class TokenUsageViewModel: ObservableObject {
     }
 
     var indicatorText: String {
-        "Today: \(Self.compact(statistics.primaryDisplayUsage.totalTokens)) | Last 10: \(Self.compact(Int(statistics.last10PromptsAverage))) | \(statistics.primaryDisplayStatus.rawValue)"
+        TokenUsageUIDisplay(statistics: statistics).tooltipText
     }
 
     var statusSystemImage: String {
-        switch statistics.status {
+        switch TokenUsageUIDisplay(statistics: statistics).primaryStatus {
         case .ok:
             return "checkmark.circle"
         case .warning:

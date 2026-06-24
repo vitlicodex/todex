@@ -306,6 +306,70 @@ private func testPrimaryDisplayUsageUsesTodayScope() throws {
     expectEqual(stats.primaryDisplayUsage.requests, stats.todayUsage.requests, "Primary UI requests should use Today scope.")
 }
 
+private func testUIDisplayModelCoversHeaderMenuAndCalendarData() throws {
+    let temp = try temporaryDirectory()
+    let store = TokenUsageStore(stateURL: temp.appendingPathComponent("stats.json"))
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    let now = ISO8601DateFormatter().date(from: "2026-06-24T12:00:00Z")!
+    let todayStart = calendar.startOfDay(for: now)
+    let yesterdayStart = calendar.date(byAdding: .day, value: -1, to: todayStart) ?? todayStart
+    let activePath = "/tmp/.codex/sessions/active.jsonl"
+    let otherPath = "/tmp/.codex/sessions/other.jsonl"
+
+    try store.resetAll(sessionStartedAt: todayStart)
+    try store.add([
+        sample(id: "active", timestamp: todayStart.addingTimeInterval(3600), input: 100, output: 50, sourcePath: activePath),
+        sample(id: "other", timestamp: todayStart.addingTimeInterval(7200), input: 20, output: 5, sourcePath: otherPath),
+        sample(id: "yesterday", timestamp: yesterdayStart.addingTimeInterval(3600), input: 30, output: 10, sourcePath: otherPath)
+    ])
+
+    let stats = store.statistics(activeSourcePath: activePath, issues: [], now: now)
+    let weekDisplay = TokenUsageUIDisplay(statistics: stats, calendarScope: .week, now: now, calendar: calendar)
+    let monthDisplay = TokenUsageUIDisplay(statistics: stats, calendarScope: .month, now: now, calendar: calendar)
+
+    expectEqual(weekDisplay.headerTitle, "CODEX TODAY", "Header title should state the primary UI scope.")
+    expectEqual(weekDisplay.primaryTokenText, "175", "Header token text should use today's tokens.")
+    expectEqual(weekDisplay.primaryRequestText, "2", "Header request text should use today's requests.")
+    expectEqual(weekDisplay.primaryStatus, stats.primaryDisplayStatus, "Header status should use primary display status.")
+    expectEqual(weekDisplay.statusBadgeText, "OK", "Header status badge should match primary display status.")
+    expectEqual(weekDisplay.last10PromptAverageText, "150", "Header Last 10 metric should use the active session average.")
+    expectEqual(weekDisplay.monthlyCostText, "n/a", "Header cost metric should format missing cost data.")
+    expectEqual(weekDisplay.tooltipText, "Today: 175 | Last 10: 150 | OK", "Menu bar tooltip should use the same Today scope.")
+
+    expectEqual(
+        weekDisplay.overviewLines,
+        [
+            "Status: OK · real",
+            "Today tokens: 175 · 215 total",
+            "Today requests: 2",
+            "Input tokens today: 120",
+            "Output tokens today: 55",
+            "Cached input tokens: 0",
+            "Average tokens per prompt: 150",
+            "Last 10 prompts average: 150",
+            "Peak prompt cost: 150"
+        ],
+        "Overview should expose every UI data row from the shared display model."
+    )
+
+    expectEqual(weekDisplay.usageLogLines.count, 4, "Usage Log should expose exactly four period rows.")
+    expectEqual(weekDisplay.usageLogLines[0], "Today: 175 tok · 2 req · in 120 / out 55", "Usage Log Today row should match primary Today data.")
+    expectEqual(weekDisplay.usageLogLines[1], "Yesterday: 40 tok · 1 req · in 30 / out 10", "Usage Log Yesterday row should match yesterday data.")
+    expect(!weekDisplay.usageLogLines.contains { $0.contains("Jun 22") || $0.contains("Daily History") }, "Usage Log should not include older zero rows.")
+
+    expectEqual(weekDisplay.calendar.scope, .week, "Week calendar display should use week scope.")
+    expectEqual(weekDisplay.calendar.days.count, 7, "Week calendar should render seven days.")
+    let weekToday = weekDisplay.calendar.days.first { $0.isToday }
+    expectEqual(weekToday?.totalTokens, 175, "Week calendar should mark today's token usage.")
+
+    expectEqual(monthDisplay.calendar.scope, .month, "Month calendar display should use month scope.")
+    expectEqual(monthDisplay.calendar.days.count, 42, "Month calendar should render a stable six-week grid.")
+    let monthToday = monthDisplay.calendar.days.first { $0.isToday }
+    expectEqual(monthToday?.totalTokens, 175, "Month calendar should mark today's token usage.")
+    expect(monthDisplay.calendar.days.contains { !$0.isCurrentMonth }, "Month calendar should include leading or trailing non-month days for grid alignment.")
+}
+
 private func testStoreDecodesLegacyStateWithoutFingerprints() throws {
     let temp = try temporaryDirectory()
     let url = temp.appendingPathComponent("stats.json")
@@ -456,6 +520,7 @@ private let tests: [(String, () throws -> Void)] = [
     ("Usage store project enrichment", testStoreEnrichesExistingSampleProjectMetadata),
     ("Usage store daily history", testStorePersistsDailyHistoryAndProjectBreakdown),
     ("Primary display usage scope", testPrimaryDisplayUsageUsesTodayScope),
+    ("UI display model coverage", testUIDisplayModelCoversHeaderMenuAndCalendarData),
     ("Legacy state migration", testStoreDecodesLegacyStateWithoutFingerprints),
     ("Source fingerprint persistence", testEnginePersistsSourceFingerprintsAcrossRestart),
     ("Incremental source cursor", testEngineUsesIncrementalCursorForAppendedSessionLog),

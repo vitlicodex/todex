@@ -158,8 +158,9 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
     private func updateButton() {
         guard let button = statusItem.button else { return }
 
+        let display = TokenUsageUIDisplay(statistics: statistics, calendarScope: usageCalendarScope)
         let title = menuBarTitle()
-        let tooltip = "Today: \(Self.compact(statistics.primaryDisplayUsage.totalTokens)) | Last 10: \(Self.compact(Int(statistics.last10PromptsAverage))) | \(statistics.primaryDisplayStatus.rawValue)"
+        let tooltip = display.tooltipText
         let signature = buttonRenderSignature(title: title, tooltip: tooltip)
         guard signature != lastButtonRenderSignature else { return }
         lastButtonRenderSignature = signature
@@ -205,14 +206,14 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
     }
 
     private func buttonRenderSignature(title: String, tooltip: String) -> String {
-        [
+        let display = TokenUsageUIDisplay(statistics: statistics, calendarScope: usageCalendarScope)
+        return [
             title,
             tooltip,
-            "\(statistics.primaryDisplayUsage.totalTokens)",
-            "\(statistics.primaryDisplayUsage.inputTokens)",
-            "\(statistics.primaryDisplayUsage.outputTokens)",
-            "\(statistics.primaryDisplayUsage.requests)",
-            statistics.primaryDisplayStatus.rawValue,
+            "\(display.calendar.scope.rawValue)",
+            display.primaryTokenText,
+            display.primaryRequestText,
+            display.primaryStatus.rawValue,
             permissionSnapshot.status.rawValue,
             unlockedAPIKey == nil ? "locked" : "unlocked",
             keyStore.hasStoredKey() ? "stored-key" : "no-key"
@@ -325,20 +326,13 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
 
     private func addOverviewSubmenu(to menu: NSMenu) {
         addSubmenu("Overview", to: menu) { submenu in
-            let currentScope = statistics.mode == .api ? "today" : "session"
-            addDisabled("Status: \(statistics.status.rawValue) · \(statistics.mode.rawValue)", to: submenu)
+            let display = TokenUsageUIDisplay(statistics: statistics, calendarScope: usageCalendarScope)
+            addDisabled(display.overviewLines[0], to: submenu)
             addAction("Refresh Now", #selector(refreshNow), to: submenu)
             submenu.addItem(.separator())
-            addDisabled("Tokens: \(statistics.sessionTokens) \(currentScope) · \(statistics.totalTokens) total", to: submenu)
-            addDisabled("Requests: \(statistics.requestCount) \(currentScope)", to: submenu)
-            submenu.addItem(.separator())
-            addDisabled("Input tokens: \(statistics.inputTokens)", to: submenu)
-            addDisabled("Output tokens: \(statistics.outputTokens)", to: submenu)
-            addDisabled("Cached input tokens: \(statistics.cachedInputTokens)", to: submenu)
-            submenu.addItem(.separator())
-            addDisabled("Average tokens per prompt: \(Self.integer(statistics.averageTokensPerPrompt))", to: submenu)
-            addDisabled("Last 10 prompts average: \(Self.integer(statistics.last10PromptsAverage))", to: submenu)
-            addDisabled("Peak prompt cost: \(statistics.peakPromptCost)", to: submenu)
+            for line in display.overviewLines.dropFirst() {
+                addDisabled(line, to: submenu)
+            }
             submenu.addItem(.separator())
             addDisabled("Daily cost: \(formatUSD(statistics.dailyCostUSD))", to: submenu)
             addDisabled("Monthly cost: \(formatUSD(statistics.monthlyCostUSD))", to: submenu)
@@ -348,10 +342,10 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
 
     private func addUsageLogSubmenu(to menu: NSMenu) {
         addSubmenu("Usage Log", to: menu) { submenu in
-            addDisabled(periodLine(statistics.todayUsage), to: submenu)
-            addDisabled(periodLine(statistics.yesterdayUsage), to: submenu)
-            addDisabled(periodLine(statistics.currentWeekUsage), to: submenu)
-            addDisabled(periodLine(statistics.currentMonthUsage), to: submenu)
+            let display = TokenUsageUIDisplay(statistics: statistics, calendarScope: usageCalendarScope)
+            for line in display.usageLogLines {
+                addDisabled(line, to: submenu)
+            }
 
             submenu.addItem(.separator())
             addUsageCalendar(to: submenu)
@@ -362,10 +356,11 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         let item = NSMenuItem()
         item.view = UsageCalendarMenuView(
             statistics: statistics,
-            scope: usageCalendarScope,
-            target: self,
-            action: #selector(selectUsageCalendarScope(_:))
-        )
+            scope: usageCalendarScope
+        ) { [weak self] scope in
+            self?.usageCalendarScope = scope
+            self?.lastMenuRenderSignature = nil
+        }
         menu.addItem(item)
     }
 
@@ -626,12 +621,6 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
 
     @objc private func refreshNow() {
         refresh(force: true)
-    }
-
-    @objc private func selectUsageCalendarScope(_ sender: NSSegmentedControl) {
-        usageCalendarScope = sender.selectedSegment == 1 ? .month : .week
-        lastMenuRenderSignature = nil
-        rebuildMenu()
     }
 
     @objc private func openHelp() {
