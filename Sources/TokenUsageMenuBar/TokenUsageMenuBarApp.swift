@@ -1209,55 +1209,52 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 224),
+            contentRect: NSRect(x: 0, y: 0, width: 392, height: 160),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
         window.isReleasedWhenClosed = false
         window.title = "TODEX"
+        window.titleVisibility = .hidden
         window.center()
 
-        let content = NSView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 460, height: 224))
+        let content = NSView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 392, height: 160))
         content.autoresizingMask = [.width, .height]
 
-        let iconView = NSImageView(frame: NSRect(x: 24, y: 144, width: 48, height: 48))
+        let iconView = NSImageView(frame: NSRect(x: 22, y: 88, width: 42, height: 42))
         iconView.image = NSApp.applicationIconImage
         iconView.imageScaling = .scaleProportionallyUpOrDown
         content.addSubview(iconView)
 
         let title = NSTextField(labelWithString: "TODEX is running")
         title.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
-        title.frame = NSRect(x: 88, y: 172, width: 348, height: 22)
+        title.frame = NSRect(x: 78, y: 112, width: 292, height: 22)
         content.addSubview(title)
 
-        let body = NSTextField(labelWithString: "The main control is the “TODEX” item on the right side of the macOS menu bar. If macOS hides it, use Open Menu here. Closing this window keeps the monitor running in the background.")
+        let body = NSTextField(labelWithString: "Use the TODEX menu bar item for status and controls. Closing this window keeps monitoring active.")
         body.font = NSFont.systemFont(ofSize: 12)
         body.textColor = .secondaryLabelColor
         body.lineBreakMode = .byWordWrapping
-        body.maximumNumberOfLines = 3
-        body.frame = NSRect(x: 88, y: 112, width: 348, height: 48)
+        body.maximumNumberOfLines = 2
+        body.frame = NSRect(x: 78, y: 72, width: 292, height: 36)
         content.addSubview(body)
 
         let openMenuButton = NSButton(title: "Open Menu", target: self, action: #selector(openMenuFromControlWindow(_:)))
         openMenuButton.keyEquivalent = "\r"
-        openMenuButton.frame = NSRect(x: 24, y: 64, width: 112, height: 32)
+        openMenuButton.frame = NSRect(x: 22, y: 24, width: 102, height: 30)
         content.addSubview(openMenuButton)
 
         let keyButton = NSButton(title: "Set API Key", target: self, action: #selector(setAPIKey))
-        keyButton.frame = NSRect(x: 148, y: 64, width: 112, height: 32)
+        keyButton.frame = NSRect(x: 132, y: 24, width: 100, height: 30)
         content.addSubview(keyButton)
 
         let helpButton = NSButton(title: "Help", target: self, action: #selector(openHelp))
-        helpButton.frame = NSRect(x: 272, y: 64, width: 76, height: 32)
+        helpButton.frame = NSRect(x: 240, y: 24, width: 62, height: 30)
         content.addSubview(helpButton)
 
-        let closeButton = NSButton(title: "Hide Window", target: window, action: #selector(NSWindow.close))
-        closeButton.frame = NSRect(x: 24, y: 24, width: 112, height: 32)
-        content.addSubview(closeButton)
-
-        let quitButton = NSButton(title: "Quit App", target: self, action: #selector(quit))
-        quitButton.frame = NSRect(x: 348, y: 24, width: 88, height: 32)
+        let quitButton = NSButton(title: "Quit", target: self, action: #selector(quit))
+        quitButton.frame = NSRect(x: 310, y: 24, width: 60, height: 30)
         content.addSubview(quitButton)
 
         window.contentView = content
