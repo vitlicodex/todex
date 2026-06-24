@@ -21,10 +21,10 @@ Codex Token Monitor is a lightweight macOS menu bar app.
 The menu bar indicator is compact:
 
 ```text
-Tok 124k
-Tok 124k WARN
-Tok 1.6m HIGH
+TOK
 ```
+
+Full token counts, status, requests, costs, and permission state are shown in the dropdown and tooltip.
 
 The dropdown is organized around the common workflow:
 

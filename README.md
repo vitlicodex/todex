@@ -9,7 +9,7 @@ Codex Token Menu Bar is built for people who run Codex all day and want a quiet,
 ## Highlights
 
 - Native AppKit menu bar app.
-- Compact menu bar status: `Tok 124k`, `Tok 124k WARN`, `Tok 1.6m HIGH`.
+- Compact menu bar status item: `TOK`. Full usage details live in the dropdown and tooltip.
 - Local Codex `token_count` monitoring from `~/.codex/sessions/**/*.jsonl`.
 - Optional OpenAI Usage API and Costs API monitoring.
 - Encrypted local API key vault with macOS device-owner authentication.
@@ -56,7 +56,7 @@ open "$HOME/Applications/Codex Token Menu Bar.app"
 
 The installed app appears in the macOS menu bar. It keeps running until **Quit App** is selected from the dropdown.
 
-The app is a background menu bar utility, so it does not appear in the Dock or Cmd-Tab. A small control window opens on launch with an **Open Menu** button in case macOS hides the menu bar item.
+The app is a background menu bar utility, so it does not appear in the Dock or Cmd-Tab. A small control window opens on launch with an **Open Menu** button in case macOS hides the `TOK` menu bar item.
 
 ## Build
 

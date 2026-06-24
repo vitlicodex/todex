@@ -55,11 +55,11 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         launchAtLogin.cleanupLegacyLogs()
         refreshPermissions(logChanges: false, force: true)
         if let button = statusItem.button {
-            button.title = "Tok"
+            button.title = "TOK"
             button.image = nil
             button.imagePosition = .noImage
             button.toolTip = "Codex token monitor"
-            AppDebugLogger.log("status button created text=Tok")
+            AppDebugLogger.log("status button created text=TOK")
         } else {
             AppDebugLogger.log("status button missing")
         }
@@ -422,7 +422,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
 
     private func addFeatureSwitches(to menu: NSMenu) {
         addDisabled("Feature Switches", to: menu)
-        for feature in MonitorFeatureFlag.allCases {
+        for feature in MonitorFeatureFlag.allCases where feature != .menuBarSpend {
             let item = NSMenuItem(title: feature.title, action: #selector(toggleFeature(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = feature.rawValue
@@ -853,36 +853,8 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         min(30, max(5, interval * 0.15))
     }
 
-    private func menuBarSpendText() -> String {
-        guard settings.isEnabled(.menuBarSpend),
-              !settings.isEnabled(.privacyMode),
-              let monthlyCostUSD = statistics.monthlyCostUSD,
-              monthlyCostUSD > 0 else {
-            return ""
-        }
-        return " \(formatUSD(monthlyCostUSD))"
-    }
-
     private func menuBarTitle() -> String {
-        if !menuBarSpendText().isEmpty {
-            return "Tok\(menuBarSpendText())"
-        }
-
-        if settings.isEnabled(.apiUsageSource),
-           unlockedAPIKey == nil,
-           !settings.isEnabled(.localFallback) {
-            return keyStore.hasStoredKey() ? "Tok LOCK" : "Tok KEY"
-        }
-
-        let tokenText = Self.compact(statistics.sessionTokens)
-        switch statistics.status {
-        case .ok:
-            return "Tok \(tokenText)"
-        case .warning:
-            return "Tok \(tokenText) WARN"
-        case .highUsage:
-            return "Tok \(tokenText) HIGH"
-        }
+        "TOK"
     }
 
     private func formatUSD(_ value: Double?) -> String {
