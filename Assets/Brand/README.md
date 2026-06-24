@@ -1,12 +1,13 @@
 # TODEX Brand Kit
 
-TODEX uses a quiet technical identity: compact lettering, a token-meter `O`, and a small gold crown as the only premium accent.
+TODEX uses a quiet technical identity: compact lettering, a token-meter `O`, and a small fractal gold crown as the only premium accent.
 
 ## Logo Concept
 
 - `T` + token-meter `O` + `DEX` keeps the name readable at a glance.
 - The `O` is drawn as a ring to reference token usage, monitoring, and daily cycles.
 - The crown sits on the upper-right side of the `O`; it should stay small and gold, never oversized.
+- The crown uses a simple fractal lattice: outer crown shape, inner recursive crown line, small peak nodes, and subtle connectors.
 - The brand should feel calm, local-first, and utility-grade rather than loud or decorative.
 
 ## Color Roles
@@ -28,6 +29,7 @@ TODEX uses a quiet technical identity: compact lettering, a token-meter `O`, and
 ## Usage Rules
 
 - Keep the crown gold unless the logo is strictly monochrome.
+- Preserve the inner crown lattice on large logos and app icons; simplify it only for tiny menu bar glyphs.
 - Do not add gradients to the wordmark itself.
 - Do not place the crown above the full word; it belongs to the `O`.
 - Keep clear space around the mark at least equal to the crown width.

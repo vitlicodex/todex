@@ -173,6 +173,18 @@ enum StatusBarIconRenderer {
         NSColor.white.withAlphaComponent(0.30).setStroke()
         path.lineWidth = 0.35
         path.stroke()
+
+        let lattice = NSBezierPath()
+        lattice.move(to: NSPoint(x: rect.minX + rect.width * 0.22, y: rect.minY + rect.height * 0.30))
+        lattice.line(to: NSPoint(x: rect.minX + rect.width * 0.36, y: rect.minY + rect.height * 0.58))
+        lattice.line(to: NSPoint(x: rect.midX, y: rect.minY + rect.height * 0.36))
+        lattice.line(to: NSPoint(x: rect.minX + rect.width * 0.64, y: rect.minY + rect.height * 0.58))
+        lattice.line(to: NSPoint(x: rect.maxX - rect.width * 0.22, y: rect.minY + rect.height * 0.30))
+        NSColor.white.withAlphaComponent(0.45).setStroke()
+        lattice.lineWidth = 0.28
+        lattice.lineCapStyle = .round
+        lattice.lineJoinStyle = .round
+        lattice.stroke()
     }
 
     private static func color(for status: TokenUsageStatus) -> NSColor {

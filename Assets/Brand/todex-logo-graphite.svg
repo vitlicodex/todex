@@ -7,7 +7,12 @@
   <circle cx="202" cy="116" r="48" stroke="#F6F8FB" stroke-width="16"/>
   <path d="M168 151A48 48 0 0 0 238 148" stroke="#58F29A" stroke-width="16" stroke-linecap="round"/>
   <path d="M222 78L230 56L242 72L254 52L266 72L278 56L286 78L281 88H227L222 78Z" fill="#F6C453"/>
-  <path d="M227 88H281" stroke="#FFF2B2" stroke-width="3" stroke-linecap="round" opacity="0.45"/>
+  <path d="M227 88H281" stroke="#FFF2B2" stroke-width="3" stroke-linecap="round" opacity="0.52"/>
+  <path d="M226 80L236 66L242 72L254 58L266 72L272 66L282 80" stroke="#FFF2B2" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" opacity="0.78"/>
+  <path d="M236 66L254 88M254 58L254 88M272 66L254 88M242 72L266 72M239 81L247 75L254 82L261 75L269 81" stroke="#FFF2B2" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" opacity="0.44"/>
+  <circle cx="230" cy="56" r="2.6" fill="#FFF2B2" opacity="0.86"/>
+  <circle cx="254" cy="52" r="3" fill="#FFF2B2" opacity="0.90"/>
+  <circle cx="278" cy="56" r="2.6" fill="#FFF2B2" opacity="0.86"/>
   <rect x="72" y="186" width="250" height="8" rx="4" fill="#58F29A"/>
   <rect x="322" y="186" width="86" height="8" rx="4" fill="#F6C453"/>
 </svg>

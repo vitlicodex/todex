@@ -63,7 +63,7 @@ func drawText(
     )
 }
 
-func drawCrown(in rect: NSRect, fill: NSColor) {
+func drawFractalCrown(in rect: NSRect, fill: NSColor) {
     let path = NSBezierPath()
     path.move(to: NSPoint(x: rect.minX + rect.width * 0.08, y: rect.minY + rect.height * 0.25))
     path.line(to: NSPoint(x: rect.minX + rect.width * 0.20, y: rect.maxY - rect.height * 0.10))
@@ -76,11 +76,65 @@ func drawCrown(in rect: NSRect, fill: NSColor) {
     path.line(to: NSPoint(x: rect.minX + rect.width * 0.14, y: rect.minY + rect.height * 0.05))
     path.close()
 
-    fill.setFill()
-    path.fill()
-    color(0xfff2b2, alpha: 0.42).setStroke()
-    path.lineWidth = max(0.7, rect.width * 0.025)
+    NSGradient(colors: [
+        color(0xffdf6b),
+        fill,
+        color(0xc98d20)
+    ])?.draw(in: path, angle: 92)
+    color(0xfff2b2, alpha: 0.50).setStroke()
+    path.lineWidth = max(0.8, rect.width * 0.022)
     path.stroke()
+
+    func point(_ x: CGFloat, _ y: CGFloat) -> NSPoint {
+        NSPoint(x: rect.minX + rect.width * x, y: rect.minY + rect.height * y)
+    }
+
+    let lattice = NSBezierPath()
+    lattice.move(to: point(0.18, 0.28))
+    lattice.line(to: point(0.30, 0.60))
+    lattice.line(to: point(0.40, 0.48))
+    lattice.line(to: point(0.50, 0.72))
+    lattice.line(to: point(0.60, 0.48))
+    lattice.line(to: point(0.70, 0.60))
+    lattice.line(to: point(0.82, 0.28))
+    color(0xfff2b2, alpha: 0.64).setStroke()
+    lattice.lineCapStyle = .round
+    lattice.lineJoinStyle = .round
+    lattice.lineWidth = max(0.7, rect.width * 0.018)
+    lattice.stroke()
+
+    let connectors = NSBezierPath()
+    connectors.move(to: point(0.30, 0.60))
+    connectors.line(to: point(0.50, 0.06))
+    connectors.move(to: point(0.50, 0.72))
+    connectors.line(to: point(0.50, 0.06))
+    connectors.move(to: point(0.70, 0.60))
+    connectors.line(to: point(0.50, 0.06))
+    connectors.move(to: point(0.40, 0.48))
+    connectors.line(to: point(0.60, 0.48))
+    color(0xfff2b2, alpha: 0.32).setStroke()
+    connectors.lineCapStyle = .round
+    connectors.lineWidth = max(0.55, rect.width * 0.012)
+    connectors.stroke()
+
+    let smallFractal = NSBezierPath()
+    smallFractal.move(to: point(0.34, 0.25))
+    smallFractal.line(to: point(0.42, 0.38))
+    smallFractal.line(to: point(0.50, 0.25))
+    smallFractal.line(to: point(0.58, 0.38))
+    smallFractal.line(to: point(0.66, 0.25))
+    color(0xfff2b2, alpha: 0.46).setStroke()
+    smallFractal.lineCapStyle = .round
+    smallFractal.lineJoinStyle = .round
+    smallFractal.lineWidth = max(0.55, rect.width * 0.012)
+    smallFractal.stroke()
+
+    for node in [point(0.20, 0.90), point(0.50, 0.98), point(0.80, 0.90)] {
+        let dotSize = max(1.4, rect.width * 0.052)
+        let dot = NSBezierPath(ovalIn: NSRect(x: node.x - dotSize / 2, y: node.y - dotSize / 2, width: dotSize, height: dotSize))
+        color(0xfff2b2, alpha: 0.85).setFill()
+        dot.fill()
+    }
 }
 
 func drawWordmark(scale: CGFloat) {
@@ -129,7 +183,7 @@ func drawWordmark(scale: CGFloat) {
     arc.stroke()
     NSGraphicsContext.restoreGraphicsState()
 
-    drawCrown(in: scaledRect(414, 565, 80, 58, scale), fill: gold)
+    drawFractalCrown(in: scaledRect(408, 560, 94, 68, scale), fill: gold)
 }
 
 func drawIcon(pixels: Int) throws -> NSBitmapImageRep {
