@@ -283,7 +283,7 @@ private func testStoreAggregatesSessionAndTotalStatistics() throws {
     expectEqual(stats.totalTokens, 165, "Total token count should include all samples.")
     expectEqual(stats.inputTokens, 100, "Session input token count should include current sample only.")
     expectEqual(stats.outputTokens, 50, "Session output token count should include current sample only.")
-    expectEqual(stats.peakPromptCost, 150, "Peak prompt cost should match current sample.")
+    expectEqual(stats.peakPromptCost, 150, "Peak request tokens should match current sample.")
 }
 
 private func testStoreEnrichesExistingSampleProjectMetadata() throws {
@@ -391,9 +391,10 @@ private func testUIDisplayModelCoversHeaderMenuAndCalendarData() throws {
     expectEqual(weekDisplay.primaryRequestText, "2", "Header request text should use today's requests.")
     expectEqual(weekDisplay.primaryStatus, stats.primaryDisplayStatus, "Header status should use primary display status.")
     expectEqual(weekDisplay.statusBadgeText, "OK", "Header status badge should match primary display status.")
-    expectEqual(weekDisplay.last10PromptAverageText, "150", "Header Last 10 metric should use the active session average.")
+    expectEqual(weekDisplay.primaryAverageRequestText, "88", "Header average metric should use today's tokens divided by today's requests.")
+    expectEqual(weekDisplay.last10PromptAverageText, "150", "Last 10 metric should use the active session average.")
     expectEqual(weekDisplay.monthlyCostText, "n/a", "Header cost metric should format missing cost data.")
-    expectEqual(weekDisplay.tooltipText, "Today: 175 | Last 10: 150 | OK", "Menu bar tooltip should use the same Today scope.")
+    expectEqual(weekDisplay.tooltipText, "Today: 175 | Avg/req: 88 | OK", "Menu bar tooltip should use the same Today scope.")
 
     expectEqual(
         weekDisplay.overviewLines,
@@ -401,12 +402,15 @@ private func testUIDisplayModelCoversHeaderMenuAndCalendarData() throws {
             "Status: OK · real",
             "Today tokens: 175 · 215 total",
             "Today requests: 2",
+            "Today avg/request: 88",
             "Input tokens today: 120",
             "Output tokens today: 55",
             "Cached input tokens: 0",
-            "Average tokens per prompt: 150",
-            "Last 10 prompts average: 150",
-            "Peak prompt cost: 150"
+            "Current session requests: 1",
+            "Session avg/request: 150",
+            "Last 10 request average: 150",
+            "Peak request tokens: 150",
+            "Note: requests can include context reloads and tool/model calls."
         ],
         "Overview should expose every UI data row from the shared display model."
     )

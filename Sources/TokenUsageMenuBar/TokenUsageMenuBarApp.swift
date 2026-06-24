@@ -1625,6 +1625,8 @@ actor TokenRefreshWorker {
         - Requests today: \(lastStatistics.primaryDisplayUsage.requests)
         - Tokens today: \(lastStatistics.primaryDisplayUsage.totalTokens)
         - Tokens month-to-date: \(lastStatistics.totalTokens)
+        - Average tokens per request today: \(TokenUsageUIDisplay.integer(TokenUsageUIDisplay.averageTokensPerRequest(lastStatistics.primaryDisplayUsage)))
+        - Average tokens per request in current session: \(TokenUsageUIDisplay.integer(lastStatistics.averageTokensPerPrompt))
         - Input tokens today: \(lastStatistics.primaryDisplayUsage.inputTokens)
         - Output tokens today: \(lastStatistics.primaryDisplayUsage.outputTokens)
         - Cached input tokens today: \(lastStatistics.cachedInputTokens)

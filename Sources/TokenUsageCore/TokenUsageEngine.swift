@@ -159,7 +159,7 @@ public final class TokenUsageEngine: @unchecked Sendable {
 
         ## Current Session
 
-        - Current session prompts: \(stats.currentSessionPrompts)
+        - Current session requests: \(stats.currentSessionPrompts)
         - Session tokens: \(stats.sessionTokens)
         - Input tokens: \(stats.inputTokens)
         - Output tokens: \(stats.outputTokens)
@@ -167,9 +167,10 @@ public final class TokenUsageEngine: @unchecked Sendable {
         - Requests: \(stats.requestCount)
         - Daily cost USD: \(stats.dailyCostUSD.map { String(format: "%.4f", $0) } ?? "n/a")
         - Monthly cost USD: \(stats.monthlyCostUSD.map { String(format: "%.4f", $0) } ?? "n/a")
-        - Average tokens per prompt: \(Formatters.decimal(stats.averageTokensPerPrompt))
-        - Last 10 prompts average: \(Formatters.decimal(stats.last10PromptsAverage))
-        - Peak prompt cost: \(stats.peakPromptCost)
+        - Today average tokens per request: \(Formatters.decimal(TokenUsageUIDisplay.averageTokensPerRequest(stats.todayUsage)))
+        - Session average tokens per request: \(Formatters.decimal(stats.averageTokensPerPrompt))
+        - Last 10 request average: \(Formatters.decimal(stats.last10PromptsAverage))
+        - Peak request tokens: \(stats.peakPromptCost)
 
         ## Usage Log
 
@@ -188,7 +189,7 @@ public final class TokenUsageEngine: @unchecked Sendable {
 
         ## Totals
 
-        - Total prompts: \(stats.totalPrompts)
+        - Total requests: \(stats.totalPrompts)
         - Total tokens: \(stats.totalTokens)
         - Active source: \(stats.activeSourcePath ?? "None")
 

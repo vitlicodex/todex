@@ -98,6 +98,10 @@ The primary Codex source is:
 
 For Codex `token_count` events, the app imports `last_token_usage` as the per-request sample and ignores cumulative `total_token_usage` to avoid double counting.
 
+In TODEX, a **request** is a model/token usage sample, not necessarily one visible user prompt. Codex can create extra model requests for context reloads, tool calls, background work, and long workspace state. If input tokens dominate output tokens, repeated context is usually the main cost driver.
+
+The header's **AVG / REQ** is calculated from today's total tokens divided by today's request count. Session averages are shown separately in **Overview** because they can use a narrower active Codex session scope.
+
 Daily, weekly, and monthly history is computed from the local persisted sample store:
 
 ```text

@@ -153,8 +153,8 @@ final class TokenMenuHeaderView: NSView {
         let gap: CGFloat = 8
         let width = (rect.width - 32 - gap * 2) / 3
         drawMetric(
-            title: "LAST 10",
-            value: display.last10PromptAverageText,
+            title: "AVG / REQ",
+            value: display.primaryAverageRequestText,
             rect: NSRect(x: rect.minX + 16, y: y, width: width, height: 39)
         )
         drawMetric(

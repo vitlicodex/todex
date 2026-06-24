@@ -11,6 +11,7 @@ public struct TokenUsageUIDisplay: Equatable, Sendable {
     public var primaryRequestText: String
     public var primaryStatus: TokenUsageStatus
     public var statusBadgeText: String
+    public var primaryAverageRequestText: String
     public var last10PromptAverageText: String
     public var monthlyCostText: String
     public var tooltipText: String
@@ -31,19 +32,23 @@ public struct TokenUsageUIDisplay: Equatable, Sendable {
         self.primaryRequestText = "\(primaryUsage.requests)"
         self.primaryStatus = primaryStatus
         self.statusBadgeText = Self.statusBadgeText(primaryStatus)
+        self.primaryAverageRequestText = Self.compact(Int(Self.averageTokensPerRequest(primaryUsage).rounded()))
         self.last10PromptAverageText = Self.compact(Int(statistics.last10PromptsAverage))
         self.monthlyCostText = Self.formatUSD(statistics.monthlyCostUSD)
-        self.tooltipText = "Today: \(Self.compact(primaryUsage.totalTokens)) | Last 10: \(Self.compact(Int(statistics.last10PromptsAverage))) | \(primaryStatus.rawValue)"
+        self.tooltipText = "Today: \(Self.compact(primaryUsage.totalTokens)) | Avg/req: \(primaryAverageRequestText) | \(primaryStatus.rawValue)"
         self.overviewLines = [
             "Status: \(primaryStatus.rawValue) · \(statistics.mode.rawValue)",
             "Today tokens: \(primaryUsage.totalTokens) · \(statistics.totalTokens) total",
             "Today requests: \(primaryUsage.requests)",
+            "Today avg/request: \(Self.integer(Self.averageTokensPerRequest(primaryUsage)))",
             "Input tokens today: \(primaryUsage.inputTokens)",
             "Output tokens today: \(primaryUsage.outputTokens)",
             "Cached input tokens: \(statistics.cachedInputTokens)",
-            "Average tokens per prompt: \(Self.integer(statistics.averageTokensPerPrompt))",
-            "Last 10 prompts average: \(Self.integer(statistics.last10PromptsAverage))",
-            "Peak prompt cost: \(statistics.peakPromptCost)"
+            "Current session requests: \(statistics.requestCount)",
+            "Session avg/request: \(Self.integer(statistics.averageTokensPerPrompt))",
+            "Last 10 request average: \(Self.integer(statistics.last10PromptsAverage))",
+            "Peak request tokens: \(statistics.peakPromptCost)",
+            "Note: requests can include context reloads and tool/model calls."
         ]
         self.usageLogLines = [
             Self.periodLine(statistics.todayUsage),
@@ -77,6 +82,11 @@ public struct TokenUsageUIDisplay: Equatable, Sendable {
 
     public static func periodLine(_ summary: UsagePeriodSummary) -> String {
         "\(summary.label): \(compact(summary.totalTokens)) tok · \(summary.requests) req · in \(compact(summary.inputTokens)) / out \(compact(summary.outputTokens))"
+    }
+
+    public static func averageTokensPerRequest(_ summary: UsagePeriodSummary) -> Double {
+        guard summary.requests > 0 else { return 0 }
+        return Double(summary.totalTokens) / Double(summary.requests)
     }
 
     public static func integer(_ value: Double) -> String {

@@ -50,6 +50,10 @@ It stream-reads session files and imports only `token_count` events. For Codex s
 
 The app uses `last_token_usage` as the per-request sample. It deliberately ignores cumulative `total_token_usage` for counting, because summing cumulative totals would double count.
 
+In TODEX, a **request** is a model/token usage sample, not necessarily one visible user prompt. Codex can create extra model requests for context reloads, tool calls, background work, and long workspace state. If input tokens are much larger than output tokens, repeated context is usually the main cost driver.
+
+The menu header's **AVG / REQ** uses today's tokens divided by today's requests. **Overview** shows today and current-session averages separately because they can use different scopes.
+
 ![Data flow](images/data-flow.png)
 
 ## Usage Log
