@@ -21,6 +21,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Custom macOS app icon with a reproducible generator.
 - Standalone SwiftPM test runner for core monitoring logic.
 
+### Changed
+
+- Reports menu now shows compact source file and folder labels instead of full-width paths.
+
 ### Security
 
 - Vault file ownership, permissions, and symlink validation.

@@ -337,8 +337,8 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
 
     private func addReportsSubmenu(to menu: NSMenu) {
         addSubmenu("Reports & Data", to: menu) { submenu in
-            addDisabled("Source: \(statistics.dataSource ?? "not connected")", to: submenu)
-            addDisabled("Path: \(statistics.activeSourcePath ?? "none")", to: submenu)
+            addDisabled("Source: \(compactMenuText(statistics.dataSource ?? "not connected", maxLength: 34))", to: submenu)
+            addSourceSummary(to: submenu)
             submenu.addItem(.separator())
             addAction("Open Full Token Report", #selector(openFullReport), to: submenu)
             addAction("Open Token Usage JSON/Log File", #selector(openUsageSource), to: submenu)
@@ -470,9 +470,10 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         }
     }
 
-    private func addDisabled(_ title: String, to menu: NSMenu) {
+    private func addDisabled(_ title: String, to menu: NSMenu, toolTip: String? = nil) {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.isEnabled = false
+        item.toolTip = toolTip
         menu.addItem(item)
     }
 
@@ -496,7 +497,8 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         addDisabled(title, to: menu)
         for row in rows.prefix(5) {
             let cost = row.costUSD.map { " · \(formatUSD($0))" } ?? ""
-            addDisabled("\(row.label): \(Self.compact(row.totalTokens)) tok · \(row.requests) req\(cost)", to: menu)
+            let label = compactMenuText(row.label, maxLength: 28)
+            addDisabled("\(label): \(Self.compact(row.totalTokens)) tok · \(row.requests) req\(cost)", to: menu, toolTip: row.label)
         }
     }
 
@@ -505,7 +507,37 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
     }
 
     private func projectLine(_ row: UsageBreakdown) -> String {
-        "\(row.label): \(Self.compact(row.totalTokens)) tok · \(row.requests) req"
+        "\(compactMenuText(row.label, maxLength: 28)): \(Self.compact(row.totalTokens)) tok · \(row.requests) req"
+    }
+
+    private func addSourceSummary(to menu: NSMenu) {
+        guard let activeSourcePath = statistics.activeSourcePath, !activeSourcePath.isEmpty else {
+            addDisabled("File: none", to: menu)
+            return
+        }
+
+        if activeSourcePath.hasPrefix("http://") || activeSourcePath.hasPrefix("https://") {
+            addDisabled(
+                "Endpoint: \(compactMenuText(activeSourcePath, maxLength: 48))",
+                to: menu,
+                toolTip: activeSourcePath
+            )
+            return
+        }
+
+        let sourceURL = URL(fileURLWithPath: activeSourcePath)
+        let fileName = sourceURL.lastPathComponent.isEmpty ? "unknown" : sourceURL.lastPathComponent
+        let folder = sourceURL.deletingLastPathComponent().path
+        addDisabled(
+            "File: \(compactMenuText(fileName, maxLength: 40))",
+            to: menu,
+            toolTip: activeSourcePath
+        )
+        addDisabled(
+            "Folder: \(compactPath(folder, maxLength: 44))",
+            to: menu,
+            toolTip: activeSourcePath
+        )
     }
 
     private func addPermissionBundleSubmenus(to menu: NSMenu) {
@@ -884,6 +916,25 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
             return String(format: "%.0fk", Double(value) / 1_000.0)
         }
         return "\(value)"
+    }
+
+    private func compactPath(_ path: String, maxLength: Int) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let abbreviated = path.hasPrefix(home)
+            ? "~" + String(path.dropFirst(home.count))
+            : path
+        return compactMenuText(abbreviated, maxLength: maxLength)
+    }
+
+    private func compactMenuText(_ text: String, maxLength: Int) -> String {
+        guard maxLength > 8, text.count > maxLength else {
+            return text
+        }
+
+        let visibleCharacters = maxLength - 3
+        let headCount = max(3, visibleCharacters / 2)
+        let tailCount = max(3, visibleCharacters - headCount)
+        return "\(text.prefix(headCount))...\(text.suffix(tailCount))"
     }
 
     private func restartTimer() {
