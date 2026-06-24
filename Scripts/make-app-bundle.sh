@@ -6,23 +6,23 @@ cd "$ROOT_DIR"
 
 HOST_ARCH="$(uname -m)"
 if [ "$HOST_ARCH" = "arm64" ]; then
-    swift build -c release --arch arm64
+    swift build -c release --arch arm64 --product TODEX
     PRODUCT_DIR="$ROOT_DIR/.build/arm64-apple-macosx/release"
 else
-    swift build -c release
+    swift build -c release --product TODEX
     PRODUCT_DIR="$ROOT_DIR/.build/release"
 fi
 
-APP_DIR="$ROOT_DIR/.build/CodexTokenMenuBar.app"
+APP_DIR="$ROOT_DIR/.build/TODEX.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
-ENTITLEMENTS_FILE="$ROOT_DIR/.build/CodexTokenMenuBar.entitlements"
+ENTITLEMENTS_FILE="$ROOT_DIR/.build/TODEX.entitlements"
 
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
-cp "$PRODUCT_DIR/CodexTokenMenuBar" "$MACOS_DIR/CodexTokenMenuBar"
+cp "$PRODUCT_DIR/TODEX" "$MACOS_DIR/TODEX"
 
 if [ -d "$ROOT_DIR/Documentation/Help" ]; then
     mkdir -p "$RESOURCES_DIR/Help"
@@ -45,15 +45,17 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>CodexTokenMenuBar</string>
+    <string>TODEX</string>
     <key>CFBundleIdentifier</key>
-    <string>local.codex-token-menubar</string>
+    <string>local.todex</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Codex Token Menu Bar</string>
+    <string>TODEX</string>
+    <key>CFBundleDisplayName</key>
+    <string>TODEX</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

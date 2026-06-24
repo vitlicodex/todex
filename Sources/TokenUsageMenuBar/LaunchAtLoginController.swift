@@ -1,8 +1,10 @@
 import AppKit
 import Foundation
+import TokenUsageCore
 
 final class LaunchAtLoginController {
-    private let label = "local.codex-token-menubar"
+    private let label = "local.todex"
+    private let legacyLabels = ["local.codex-token-menubar"]
 
     var launchAgentURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -12,6 +14,15 @@ final class LaunchAtLoginController {
 
     var isEnabled: Bool {
         FileManager.default.fileExists(atPath: launchAgentURL.path)
+            || legacyLaunchAgentURLs.contains { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    private var legacyLaunchAgentURLs: [URL] {
+        legacyLabels.map { legacyLabel in
+            FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/LaunchAgents", isDirectory: true)
+                .appendingPathComponent("\(legacyLabel).plist")
+        }
     }
 
     func cleanupLegacyLogs() {
@@ -38,6 +49,7 @@ final class LaunchAtLoginController {
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: launchAgentURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: support.path)
+        try uninstallLegacyAgents()
 
         let plist = """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -69,6 +81,16 @@ final class LaunchAtLoginController {
         if FileManager.default.fileExists(atPath: launchAgentURL.path) {
             try FileManager.default.removeItem(at: launchAgentURL)
         }
+        try uninstallLegacyAgents()
+    }
+
+    private func uninstallLegacyAgents() throws {
+        for url in legacyLaunchAgentURLs {
+            try runLaunchctl(arguments: ["bootout", "gui/\(getuid())", url.path], allowFailure: true)
+            if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+        }
     }
 
     private func runLaunchctl(arguments: [String], allowFailure: Bool) throws {
@@ -95,8 +117,7 @@ final class LaunchAtLoginController {
     }
 
     private func supportDirectory() -> URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("CodexTokenMenuBar", isDirectory: true)
+        TODEXAppPaths.supportDirectory()
     }
 
     private func validatedAppExecutablePath() throws -> String {

@@ -3,7 +3,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "CodexTokenMenuBar",
+    name: "TODEX",
     platforms: [
         .macOS(.v13)
     ],
@@ -13,7 +13,7 @@ let package = Package(
             targets: ["TokenUsageCore"]
         ),
         .executable(
-            name: "CodexTokenMenuBar",
+            name: "TODEX",
             targets: ["TokenUsageMenuBar"]
         ),
         .executable(

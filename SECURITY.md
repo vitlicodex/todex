@@ -12,7 +12,7 @@ Use GitHub private vulnerability reporting when it is enabled for the repository
 
 ## Security Model
 
-Codex Token Monitor is a local-first macOS menu bar app.
+TODEX is a local-first macOS menu bar app.
 
 - Token usage data stays on the local machine unless the user explicitly enables the OpenAI Usage API source.
 - The OpenAI API key is stored in a local encrypted vault, not in settings, logs, reports, or process arguments.

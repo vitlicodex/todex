@@ -9,7 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Added
 
 - Native macOS menu bar token monitor.
-- Always-visible short `TOK` menu bar title.
+- Always-visible `TODEX` menu bar title.
 - Launch control window with an Open Menu fallback for crowded menu bars.
 - Local Codex session log token counting.
 - Persistent day, week, and month usage log.

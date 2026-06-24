@@ -22,7 +22,7 @@ Install a local app bundle:
 
 ```bash
 Scripts/install-app.sh
-open "$HOME/Applications/Codex Token Menu Bar.app"
+open "$HOME/Applications/TODEX.app"
 ```
 
 ## Pull Request Guidelines

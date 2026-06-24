@@ -65,11 +65,7 @@ final class APIKeyStore {
     private let vaultURL: URL
 
     init() {
-        let baseURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-        vaultURL = baseURL
-            .appendingPathComponent("CodexTokenMenuBar", isDirectory: true)
-            .appendingPathComponent("api-key.vault.json")
+        vaultURL = TODEXAppPaths.supportFile("api-key.vault.json")
     }
 
     func hasStoredKey() -> Bool {

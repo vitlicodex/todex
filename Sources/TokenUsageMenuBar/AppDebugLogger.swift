@@ -6,7 +6,7 @@ enum AppDebugLogger {
     private static var logURL: URL {
         let logs = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
             .appendingPathComponent("Logs", isDirectory: true)
-        return logs.appendingPathComponent("CodexTokenMenuBar.log")
+        return logs.appendingPathComponent("TODEX.log")
     }
 
     static func log(_ message: String) {

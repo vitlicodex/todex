@@ -1,10 +1,10 @@
-# Codex Token Monitor Help
+# TODEX Help
 
 This help is local. It is bundled with the app and does not load remote content.
 
 ## What This App Does
 
-Codex Token Monitor is a lightweight macOS menu bar app.
+TODEX is a lightweight macOS menu bar app.
 
 - It shows Codex token usage in the menu bar.
 - It reads local Codex `token_count` events.
@@ -21,7 +21,7 @@ Codex Token Monitor is a lightweight macOS menu bar app.
 The menu bar indicator is compact:
 
 ```text
-TOK
+TODEX
 ```
 
 Full token counts, status, requests, costs, and permission state are shown in the dropdown and tooltip.
@@ -60,7 +60,8 @@ The **Usage Log** menu shows:
 - yesterday;
 - this week;
 - this month;
-- the last 14 days;
+- week/month calendar usage;
+- the highest-usage day marker;
 - Codex projects today.
 
 The current day's totals are computed from persisted local samples, so they survive app restarts. **Reset Session Statistics** starts a new session baseline but keeps day, week, and month history. **Reset All Statistics** clears persisted numeric history after confirmation.
@@ -85,7 +86,7 @@ Important: these endpoints count API Platform organization usage. They do not co
 The API key is saved in a local encrypted vault:
 
 ```text
-~/Library/Application Support/CodexTokenMenuBar/api-key.vault.json
+~/Library/Application Support/TODEX/api-key.vault.json
 ```
 
 Security behavior:
@@ -172,10 +173,10 @@ Use **Open Token Usage JSON/Log File** only when you need the raw source. Raw Co
 Stored local files:
 
 ```text
-~/Library/Application Support/CodexTokenMenuBar/stats.json
-~/Library/Application Support/CodexTokenMenuBar/settings.json
-~/Library/Application Support/CodexTokenMenuBar/token-report.md
-~/Library/Logs/CodexTokenMenuBar.log
+~/Library/Application Support/TODEX/stats.json
+~/Library/Application Support/TODEX/settings.json
+~/Library/Application Support/TODEX/token-report.md
+~/Library/Logs/TODEX.log
 ```
 
 These files are set to private user permissions where possible.
@@ -193,7 +194,7 @@ Enable **Launch at Login** in **App Settings**.
 The app writes:
 
 ```text
-~/Library/LaunchAgents/local.codex-token-menubar.plist
+~/Library/LaunchAgents/local.todex.plist
 ```
 
 Disable the same setting to remove it.

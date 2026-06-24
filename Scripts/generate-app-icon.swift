@@ -118,9 +118,9 @@ func drawIcon(pixels: Int) throws -> NSBitmapImageRep {
     card.stroke()
 
     drawText(
-        "Tok",
+        "TODEX",
         in: scaledRect(282, 468, 540, 164, scale),
-        size: 138,
+        size: 112,
         weight: .bold,
         color: .white,
         scale: scale

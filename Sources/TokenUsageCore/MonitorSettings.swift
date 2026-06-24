@@ -382,11 +382,7 @@ public final class MonitorSettingsStore: @unchecked Sendable {
     }
 
     public static func defaultSettingsURL() -> URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        return appSupport
-            .appendingPathComponent("CodexTokenMenuBar", isDirectory: true)
-            .appendingPathComponent("settings.json")
+        TODEXAppPaths.supportFile("settings.json")
     }
 
     public func load() -> MonitorSettings {

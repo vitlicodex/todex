@@ -7,7 +7,7 @@ This project currently supports local ad-hoc development builds and installable 
 ```bash
 Scripts/test.sh
 Scripts/make-app-bundle.sh
-codesign --verify --deep --strict .build/CodexTokenMenuBar.app
+codesign --verify --deep --strict .build/TODEX.app
 ```
 
 On Apple Silicon Macs, the bundle script builds a native `arm64` release binary.

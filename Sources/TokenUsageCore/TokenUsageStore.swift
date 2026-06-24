@@ -90,11 +90,7 @@ public final class TokenUsageStore: @unchecked Sendable {
     }
 
     public static func defaultStateURL() -> URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        return appSupport
-            .appendingPathComponent("CodexTokenMenuBar", isDirectory: true)
-            .appendingPathComponent("stats.json")
+        TODEXAppPaths.supportFile("stats.json")
     }
 
     @discardableResult

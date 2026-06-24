@@ -119,7 +119,7 @@ final class TokenUsageViewModel: ObservableObject {
     private func showError(_ message: String) {
         lastErrorMessage = message
         let alert = NSAlert()
-        alert.messageText = "Token monitor error"
+        alert.messageText = "TODEX error"
         alert.informativeText = message
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")

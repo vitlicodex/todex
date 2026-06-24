@@ -57,11 +57,11 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         launchAtLogin.cleanupLegacyLogs()
         permissionSnapshot = pendingPermissionSnapshot()
         if let button = statusItem.button {
-            button.title = "TOK"
+            button.title = "TODEX"
             button.image = nil
             button.imagePosition = .noImage
-            button.toolTip = "Codex token monitor"
-            AppDebugLogger.log("status button created text=TOK")
+            button.toolTip = "TODEX"
+            AppDebugLogger.log("status button created text=TODEX")
         } else {
             AppDebugLogger.log("status button missing")
         }
@@ -709,7 +709,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
             guard let self else { return }
             do {
                 self.unlockedAPIKey = try await self.keyStore.readKeyWithTouchID(
-                    reason: "Unlock OpenAI Admin API key for Codex Token Monitor",
+                    reason: "Unlock OpenAI Admin API key for TODEX",
                     passphrase: passphrase
                 )
                 self.apiKeyUnlockedUntil = Date().addingTimeInterval(self.apiUnlockDuration)
@@ -926,7 +926,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
 
     private func showError(_ message: String) {
         let alert = NSAlert()
-        alert.messageText = "Token monitor error"
+        alert.messageText = "TODEX error"
         alert.informativeText = message
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
@@ -984,7 +984,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
     }
 
     private func menuBarTitle() -> String {
-        "TOK"
+        "TODEX"
     }
 
     private func formatUSD(_ value: Double?) -> String {
@@ -1170,18 +1170,18 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
             defer: false
         )
         window.isReleasedWhenClosed = false
-        window.title = "Codex Token Monitor"
+        window.title = "TODEX"
         window.center()
 
         let content = NSView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 460, height: 224))
         content.autoresizingMask = [.width, .height]
 
-        let title = NSTextField(labelWithString: "Codex Token Monitor is running")
+        let title = NSTextField(labelWithString: "TODEX is running")
         title.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
         title.frame = NSRect(x: 24, y: 172, width: 412, height: 22)
         content.addSubview(title)
 
-        let body = NSTextField(labelWithString: "The main control is the “Tok” item on the right side of the macOS menu bar. If macOS hides it, use Open Menu here. Closing this window keeps the monitor running in the background.")
+        let body = NSTextField(labelWithString: "The main control is the “TODEX” item on the right side of the macOS menu bar. If macOS hides it, use Open Menu here. Closing this window keeps the monitor running in the background.")
         body.font = NSFont.systemFont(ofSize: 12)
         body.textColor = .secondaryLabelColor
         body.lineBreakMode = .byWordWrapping
@@ -1568,7 +1568,7 @@ actor TokenRefreshWorker {
             numericSamples: []
         )
         let text = """
-        # Codex Token Usage Report
+        # TODEX Usage Report
 
         Generated: \(Date())
         Source: \(lastStatistics.dataSource ?? "unknown")

@@ -36,7 +36,7 @@ final class HelpWindowController: NSObject {
             defer: false
         )
         window.isReleasedWhenClosed = false
-        window.title = "Codex Token Monitor Help"
+        window.title = "TODEX Help"
         window.contentView = webView
         return window
     }

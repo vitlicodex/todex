@@ -69,7 +69,7 @@ func makeHelpImage(name: String, title: String, subtitle: String, rows: [MenuRow
 
     roundedRect(NSRect(x: 34, y: height - 86, width: 226, height: 56), radius: 18, fill: color(0x20262d), stroke: color(0x6d7782))
     roundedRect(NSRect(x: 48, y: height - 73, width: 6, height: 30), radius: 3, fill: color(0xff453a))
-    drawText("TOK", x: 68, y: height - 58, width: 48, size: 12, weight: .bold, color: color(0xbcc5cd))
+    drawText("TODEX", x: 68, y: height - 58, width: 64, size: 12, weight: .bold, color: color(0xbcc5cd))
     drawText("8.7m", x: 68, y: height - 78, width: 72, size: 18, weight: .semibold, color: .white)
     roundedRect(NSRect(x: 172, y: height - 62, width: 58, height: 22), radius: 11, fill: color(0xff453a, alpha: 0.16), stroke: color(0xff453a, alpha: 0.70))
     drawText("HIGH", x: 184, y: height - 57, width: 48, size: 10, weight: .bold, color: color(0xff7b72))
@@ -185,8 +185,8 @@ try makeHelpImage(
     rows: [
         MenuRow(title: "1. Codex session logs", detail: "read token_count lines only"),
         MenuRow(title: "2. Token parser", detail: "extracts input/output/total numbers"),
-        MenuRow(title: "3. Local stats store", detail: "~/Library/Application Support/CodexTokenMenuBar"),
-        MenuRow(title: "4. Menu bar", detail: "Tok 8.7m HIGH"),
+        MenuRow(title: "3. Local stats store", detail: "~/Library/Application Support/TODEX"),
+        MenuRow(title: "4. Menu bar", detail: "TODEX 8.7m HIGH"),
         MenuRow(title: "5. Optional API", detail: "OpenAI organization costs only"),
         MenuRow(title: "Privacy", isHeader: true),
         MenuRow(title: "No prompt contents stored", detail: "reports are numeric"),

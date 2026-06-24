@@ -150,7 +150,7 @@ public final class TokenUsageEngine: @unchecked Sendable {
         let report = report()
         let stats = report.statistics
         let text = """
-        # Codex Token Usage Report
+        # TODEX Usage Report
 
         Generated: \(Formatters.isoString(from: report.generatedAt))
         Session started: \(Formatters.isoString(from: report.sessionStartedAt))

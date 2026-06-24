@@ -1,15 +1,15 @@
-# Codex Token Menu Bar
+# TODEX
 
 Native macOS menu bar app for monitoring Codex token usage, OpenAI API usage, and local Codex permission risk.
 
-Codex Token Menu Bar is built for people who run Codex all day and want a quiet, local-first usage monitor that does not become another heavy desktop app.
+TODEX is built for people who run Codex all day and want a quiet, local-first usage monitor that does not become another heavy desktop app.
 
 ![Main menu overview](Documentation/Help/images/menu-overview.png)
 
 ## Highlights
 
 - Native AppKit menu bar app.
-- Compact menu bar status item: `TOK`. Full usage details live in the dropdown and tooltip.
+- Compact menu bar status item: `TODEX`. Full usage details live in the dropdown and tooltip.
 - Local Codex `token_count` monitoring from `~/.codex/sessions/**/*.jsonl`.
 - Optional OpenAI Usage API and Costs API monitoring.
 - Encrypted local API key vault with macOS device-owner authentication.
@@ -46,19 +46,19 @@ Requirements:
 Build and run from source:
 
 ```bash
-swift run CodexTokenMenuBar
+swift run TODEX
 ```
 
 Install a local app bundle:
 
 ```bash
 Scripts/install-app.sh
-open "$HOME/Applications/Codex Token Menu Bar.app"
+open "$HOME/Applications/TODEX.app"
 ```
 
 The installed app appears in the macOS menu bar. It keeps running until **Quit App** is selected from the dropdown.
 
-The app is a background menu bar utility, so it does not appear in the Dock or Cmd-Tab. A small control window opens on launch with an **Open Menu** button in case macOS hides the `TOK` menu bar item.
+The app is a background menu bar utility, so it does not appear in the Dock or Cmd-Tab. A small control window opens on launch with an **Open Menu** button in case macOS hides the `TODEX` menu bar item.
 
 ## Build
 
@@ -75,7 +75,7 @@ On Apple Silicon Macs, `Scripts/make-app-bundle.sh` builds a native `arm64` rele
 The dropdown starts with a compact dashboard and groups everything else by workflow:
 
 - **Overview**: refresh, token totals, input/output, averages, costs.
-- **Usage Log**: today, yesterday, week, month, daily history, and Codex projects today.
+- **Usage Log**: today, yesterday, week, month, week/month calendar, and Codex projects today.
 - **Reports & Data**: reports, exports, source file, model/project/API key breakdowns.
 - **Codex Permissions**: current permission state and local policy toggles.
 - **API Key & Security**: unlock, lock, set, clear, clipboard session key.
@@ -99,7 +99,7 @@ For Codex `token_count` events, the app imports `last_token_usage` as the per-re
 Daily, weekly, and monthly history is computed from the local persisted sample store:
 
 ```text
-~/Library/Application Support/CodexTokenMenuBar/stats.json
+~/Library/Application Support/TODEX/stats.json
 ```
 
 The current day's totals are not reset when the app restarts. **Reset Session Statistics** only starts a new session baseline; it does not clear day/month history. **Reset All Statistics** clears persisted history after confirmation.
@@ -114,7 +114,7 @@ It does not store full Codex project paths in project breakdown rows.
 Custom source paths can be provided before launch:
 
 ```bash
-CODEX_TOKEN_USAGE_PATHS="/path/to/usage.json:/path/to/logs" swift run CodexTokenMenuBar
+CODEX_TOKEN_USAGE_PATHS="/path/to/usage.json:/path/to/logs" swift run TODEX
 ```
 
 ### OpenAI Usage API
@@ -133,7 +133,7 @@ The API key must have access to organization usage and cost endpoints. These end
 The key is saved in:
 
 ```text
-~/Library/Application Support/CodexTokenMenuBar/api-key.vault.json
+~/Library/Application Support/TODEX/api-key.vault.json
 ```
 
 Vault behavior:
@@ -177,10 +177,10 @@ This policy layer is local to the menu bar app. It does not silently rewrite Cod
 ## Stored Files
 
 ```text
-~/Library/Application Support/CodexTokenMenuBar/stats.json
-~/Library/Application Support/CodexTokenMenuBar/settings.json
-~/Library/Application Support/CodexTokenMenuBar/api-key.vault.json
-~/Library/Logs/CodexTokenMenuBar.log
+~/Library/Application Support/TODEX/stats.json
+~/Library/Application Support/TODEX/settings.json
+~/Library/Application Support/TODEX/api-key.vault.json
+~/Library/Logs/TODEX.log
 ```
 
 Stored files are written with private user permissions where possible.
@@ -192,7 +192,7 @@ Enable **Launch at Login** from the installed `.app` bundle. The app refuses to 
 The LaunchAgent is written to:
 
 ```text
-~/Library/LaunchAgents/local.codex-token-menubar.plist
+~/Library/LaunchAgents/local.todex.plist
 ```
 
 ## Documentation
