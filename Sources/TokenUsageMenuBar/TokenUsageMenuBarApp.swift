@@ -341,20 +341,8 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
     }
 
     private func addUsageLogSubmenu(to menu: NSMenu) {
-        addSubmenu("Usage Log", to: menu) { submenu in
-            let display = TokenUsageUIDisplay(statistics: statistics, calendarScope: usageCalendarScope)
-            for line in display.usageLogLines {
-                addDisabled(line, to: submenu)
-            }
-
-            submenu.addItem(.separator())
-            addUsageCalendar(to: submenu)
-        }
-    }
-
-    private func addUsageCalendar(to menu: NSMenu) {
-        let item = NSMenuItem()
-        item.view = UsageCalendarMenuView(
+        let item = NSMenuItem(title: "Usage Log", action: nil, keyEquivalent: "")
+        item.view = UsageLogExpandableMenuView(
             statistics: statistics,
             scope: usageCalendarScope
         ) { [weak self] scope in
