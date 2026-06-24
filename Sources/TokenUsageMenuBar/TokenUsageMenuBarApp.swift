@@ -58,10 +58,10 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         permissionSnapshot = pendingPermissionSnapshot()
         if let button = statusItem.button {
             button.title = "TODEX"
-            button.image = nil
-            button.imagePosition = .noImage
+            button.image = StatusBarIconRenderer.image(for: .ok, permissionStatus: permissionSnapshot.status)
+            button.imagePosition = .imageLeading
             button.toolTip = "TODEX"
-            AppDebugLogger.log("status button created text=TODEX")
+            AppDebugLogger.log("status button created text=TODEX image=fractal-orb")
         } else {
             AppDebugLogger.log("status button missing")
         }
@@ -167,8 +167,11 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
 
         statusItem.length = NSStatusItem.variableLength
         button.title = title
-        button.image = nil
-        button.imagePosition = .noImage
+        button.image = StatusBarIconRenderer.image(
+            for: display.primaryStatus,
+            permissionStatus: permissionSnapshot.status
+        )
+        button.imagePosition = .imageLeading
         button.toolTip = tooltip
         AppDebugLogger.log("status updated title=\(title) status=\(statistics.status.rawValue)")
     }
@@ -212,6 +215,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
             display.primaryRequestText,
             display.primaryStatus.rawValue,
             permissionSnapshot.status.rawValue,
+            "fractal-status-icon-v1",
             unlockedAPIKey == nil ? "locked" : "unlocked",
             keyStore.hasStoredKey() ? "stored-key" : "no-key"
         ].joined(separator: "|")
