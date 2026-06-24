@@ -15,7 +15,6 @@ Codex Token Menu Bar is built for people who run Codex all day and want a quiet,
 - Encrypted local API key vault with macOS device-owner authentication.
 - Codex permission monitoring with five local policy presets.
 - Safe numeric Markdown and JSON reports.
-- Floating `Tok` fallback button for crowded menu bars.
 - Apple Silicon native release bundle support.
 - No prompt content storage.
 - No third-party telemetry.
@@ -75,7 +74,7 @@ The dropdown starts with a compact dashboard and groups everything else by workf
 - **Reports & Data**: reports, exports, source file, model/project/API key breakdowns.
 - **Codex Permissions**: current permission state and local policy toggles.
 - **API Key & Security**: unlock, lock, set, clear, clipboard session key.
-- **Appearance**: launch at login and floating button controls.
+- **App Settings**: launch at login.
 - **Advanced**: feature switches, resets, diagnostics.
 
 ## Data Sources

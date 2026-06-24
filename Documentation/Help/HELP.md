@@ -32,22 +32,8 @@ The dropdown is organized around the common workflow:
 - **Reports & Data**: full report, raw source, export, breakdowns.
 - **Codex Permissions**: current permission state and local policy toggles.
 - **API Key & Security**: unlock, lock, set, clear, clipboard key.
-- **Appearance**: floating button and launch at login.
+- **App Settings**: launch at login.
 - **Advanced**: feature switches, reset, diagnostics.
-
-If the macOS menu bar is crowded and hides the item, the app also shows a small floating `Tok...` button near the top-right of the screen. Click it to open the same dropdown menu.
-
-The floating button is draggable. Move it anywhere on screen; the app saves its position. Use **Appearance -> Reset Floating Button Position** if you want to return it to the default top-right location.
-
-## Floating Button
-
-The app can show a small floating `Tok` button when the macOS menu bar is crowded. It opens the same dropdown menu as the menu bar item.
-
-Controls:
-
-- **Appearance -> Show Floating Button**
-- **Appearance -> Hide Floating Button**
-- **Appearance -> Reset Floating Button Position**
 
 ## Token Data Sources
 
@@ -184,7 +170,7 @@ These files are set to private user permissions where possible.
 
 ## Launch At Login
 
-Enable **Launch at Login** in **Appearance**.
+Enable **Launch at Login** in **App Settings**.
 
 The app writes:
 
@@ -200,9 +186,7 @@ Launch at Login can only be enabled from the installed `.app` bundle. The Launch
 
 ### I do not see the menu bar item
 
-macOS can hide menu bar items when there is not enough space. Look for the floating `Tok...` button near the top-right of the screen.
-
-Use **Appearance -> Show Floating Button** if it was hidden.
+macOS can hide menu bar items when there is not enough horizontal space. Close or hide other menu bar extras, or use macOS Control Center/Menu Bar settings to free space near the right side of the menu bar.
 
 ### The API shows zero dollars or zero requests
 

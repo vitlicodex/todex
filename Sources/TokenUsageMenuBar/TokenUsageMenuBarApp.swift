@@ -23,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @MainActor
-final class TokenStatusController: NSObject, NSWindowDelegate, FloatingTokenButtonViewDelegate {
+final class TokenStatusController: NSObject, NSWindowDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let worker = TokenRefreshWorker()
     private let launchAtLogin = LaunchAtLoginController()
@@ -41,8 +41,6 @@ final class TokenStatusController: NSObject, NSWindowDelegate, FloatingTokenButt
     private var lastMenuRenderSignature: String?
     private var settings = MonitorSettings()
     private var startupWindow: NSWindow?
-    private var fallbackPanel: NSPanel?
-    private var fallbackButton: FloatingTokenButtonView?
     private var apiKeyWindow: NSWindow?
     private var apiKeyField: NSSecureTextField?
     private var apiKeyPassphraseField: NSSecureTextField?
@@ -50,7 +48,6 @@ final class TokenStatusController: NSObject, NSWindowDelegate, FloatingTokenButt
     private var unlockedAPIKey: String?
     private var apiKeyUnlockedUntil: Date?
     private let apiUnlockDuration: TimeInterval = 10 * 60
-    private let floatingFrameKey = "CodexTokenMenuBar.floatingPanelFrame"
     private let permissionRefreshThrottleSeconds: TimeInterval = 20
 
     func start() {
@@ -70,7 +67,6 @@ final class TokenStatusController: NSObject, NSWindowDelegate, FloatingTokenButt
         statusItem.isVisible = true
         updateButton()
         rebuildMenu()
-        showFallbackPanel()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             self?.refresh()
         }
@@ -134,7 +130,6 @@ final class TokenStatusController: NSObject, NSWindowDelegate, FloatingTokenButt
         button.image = nil
         button.imagePosition = .noImage
         button.toolTip = tooltip
-        updateFloatingButton()
         AppDebugLogger.log("status updated title=\(title) status=\(statistics.status.rawValue)")
     }
 
@@ -158,7 +153,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate, FloatingTokenButt
         addReportsSubmenu(to: menu)
         addPermissionsSubmenu(to: menu)
         addAPIKeySecuritySubmenu(to: menu)
-        addAppearanceSubmenu(to: menu)
+        addAppSettingsSubmenu(to: menu)
         addAdvancedSubmenu(to: menu)
 
         menu.addItem(.separator())
@@ -189,7 +184,6 @@ final class TokenStatusController: NSObject, NSWindowDelegate, FloatingTokenButt
             permissionMenuSignature(),
             settingsRenderSignature(),
             "launch:\(launchAtLogin.isEnabled)",
-            "fallback:\(fallbackPanel != nil)",
             "api:\(apiKeyStateSignature())"
         ].joined(separator: "||")
     }
@@ -396,8 +390,8 @@ final class TokenStatusController: NSObject, NSWindowDelegate, FloatingTokenButt
         }
     }
 
-    private func addAppearanceSubmenu(to menu: NSMenu) {
-        addSubmenu("Appearance", to: menu) { submenu in
+    private func addAppSettingsSubmenu(to menu: NSMenu) {
+        addSubmenu("App Settings", to: menu) { submenu in
             addToggle(
                 "Launch at Login",
                 isOn: launchAtLogin.isEnabled,
@@ -405,9 +399,6 @@ final class TokenStatusController: NSObject, NSWindowDelegate, FloatingTokenButt
                 representedObject: "",
                 to: submenu
             )
-            submenu.addItem(.separator())
-            addAction(fallbackPanel == nil ? "Show Floating Button" : "Hide Floating Button", #selector(toggleFloatingPanel), to: submenu)
-            addAction("Reset Floating Button Position", #selector(resetFloatingPanelPosition), to: submenu)
         }
     }
 
@@ -774,54 +765,6 @@ final class TokenStatusController: NSObject, NSWindowDelegate, FloatingTokenButt
         }
     }
 
-    @objc private func toggleFloatingPanel() {
-        if fallbackPanel == nil {
-            showFallbackPanel()
-        } else {
-            hideFallbackPanel()
-        }
-        rebuildMenu()
-    }
-
-    @objc private func resetFloatingPanelPosition() {
-        UserDefaults.standard.removeObject(forKey: floatingFrameKey)
-        if fallbackPanel != nil {
-            hideFallbackPanel()
-            showFallbackPanel()
-        }
-        rebuildMenu()
-    }
-
-    @objc private func openFloatingMenu() {
-        guard let button = fallbackButton,
-              let menu = statusItem.menu else {
-            return
-        }
-        NSApp.activate(ignoringOtherApps: true)
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
-    }
-
-    func floatingTokenButtonDidClick(_ view: FloatingTokenButtonView) {
-        openFloatingMenu()
-    }
-
-    func floatingTokenButton(_ view: FloatingTokenButtonView, didMovePanelBy delta: NSSize) {
-        guard let panel = fallbackPanel,
-              let screen = screenForWindow(panel) else {
-            return
-        }
-
-        var frame = panel.frame
-        frame.origin.x += delta.width
-        frame.origin.y += delta.height
-        frame.origin = clampedFloatingOrigin(frame.origin, panelSize: frame.size, visibleFrame: screen.visibleFrame)
-        panel.setFrameOrigin(frame.origin)
-    }
-
-    func floatingTokenButtonDidFinishMoving(_ view: FloatingTokenButtonView) {
-        saveFloatingPanelFrame()
-    }
-
     @objc private func toggleLaunchAtLogin() {
         do {
             try launchAtLogin.setEnabled(!launchAtLogin.isEnabled)
@@ -1073,7 +1016,6 @@ final class TokenStatusController: NSObject, NSWindowDelegate, FloatingTokenButt
         )
         window.isReleasedWhenClosed = false
         window.title = "Codex Token Monitor"
-        window.level = .floating
         window.center()
 
         let content = NSView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 420, height: 190))
@@ -1115,113 +1057,6 @@ final class TokenStatusController: NSObject, NSWindowDelegate, FloatingTokenButt
         AppDebugLogger.log("startup window shown")
     }
 
-    private func showFallbackPanel() {
-        guard fallbackPanel == nil else { return }
-
-        let screen = NSScreen.main ?? NSScreen.screens.first
-        let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let panelSize = NSSize(width: 172, height: 44)
-        let panelOrigin = savedFloatingPanelOrigin(panelSize: panelSize, visibleFrame: visibleFrame)
-        let panelFrame = NSRect(origin: panelOrigin, size: panelSize)
-
-        let panel = NSPanel(
-            contentRect: panelFrame,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.isReleasedWhenClosed = false
-        panel.level = .statusBar
-        panel.isFloatingPanel = true
-        panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
-        panel.hasShadow = true
-
-        let button = FloatingTokenButtonView(frame: NSRect(origin: .zero, size: panelSize))
-        button.autoresizingMask = [.width, .height]
-        button.delegate = self
-        panel.contentView = button
-
-        fallbackPanel = panel
-        fallbackButton = button
-        updateFloatingButton()
-        panel.orderFrontRegardless()
-        AppDebugLogger.log("fallback floating panel shown")
-    }
-
-    private func hideFallbackPanel() {
-        fallbackPanel?.orderOut(nil)
-        fallbackPanel = nil
-        fallbackButton = nil
-        AppDebugLogger.log("fallback floating panel hidden")
-    }
-
-    private func updateFloatingButton() {
-        guard let fallbackButton else { return }
-        fallbackButton.title = menuBarTitle()
-        fallbackButton.tokenText = Self.compact(statistics.sessionTokens)
-        fallbackButton.status = statistics.status
-        fallbackButton.permissionStatus = permissionSnapshot.status
-        fallbackButton.isAPIKeyUnlocked = unlockedAPIKey != nil
-        fallbackButton.toolTip = "Tokens: \(Self.compact(statistics.sessionTokens)) | Last 10: \(Self.compact(Int(statistics.last10PromptsAverage))) | \(statistics.status.rawValue)"
-    }
-
-    private func savedFloatingPanelOrigin(panelSize: NSSize, visibleFrame: NSRect) -> NSPoint {
-        let fallback = NSPoint(x: visibleFrame.maxX - panelSize.width - 12, y: visibleFrame.maxY - panelSize.height - 8)
-        return savedPanelOrigin(
-            key: floatingFrameKey,
-            fallback: fallback,
-            panelSize: panelSize,
-            visibleFrame: visibleFrame
-        )
-    }
-
-    private func savedPanelOrigin(
-        key: String,
-        fallback: NSPoint,
-        panelSize: NSSize,
-        visibleFrame: NSRect
-    ) -> NSPoint {
-        guard let stored = UserDefaults.standard.string(forKey: key) else {
-            return clampedFloatingOrigin(fallback, panelSize: panelSize, visibleFrame: visibleFrame)
-        }
-
-        let parts = stored.split(separator: ",").compactMap { Double($0) }
-        guard parts.count == 2 else {
-            return clampedFloatingOrigin(fallback, panelSize: panelSize, visibleFrame: visibleFrame)
-        }
-
-        return clampedFloatingOrigin(
-            NSPoint(x: parts[0], y: parts[1]),
-            panelSize: panelSize,
-            visibleFrame: visibleFrame
-        )
-    }
-
-    private func saveFloatingPanelFrame() {
-        guard let frame = fallbackPanel?.frame else { return }
-        UserDefaults.standard.set("\(frame.origin.x),\(frame.origin.y)", forKey: floatingFrameKey)
-        AppDebugLogger.log("fallback floating panel moved")
-    }
-
-    private func screenForWindow(_ window: NSWindow) -> NSScreen? {
-        let windowMid = NSPoint(x: window.frame.midX, y: window.frame.midY)
-        return NSScreen.screens.first { $0.frame.contains(windowMid) } ?? NSScreen.main ?? NSScreen.screens.first
-    }
-
-    private func clampedFloatingOrigin(
-        _ origin: NSPoint,
-        panelSize: NSSize,
-        visibleFrame: NSRect
-    ) -> NSPoint {
-        NSPoint(
-            x: min(max(origin.x, visibleFrame.minX + 6), visibleFrame.maxX - panelSize.width - 6),
-            y: min(max(origin.y, visibleFrame.minY + 6), visibleFrame.maxY - panelSize.height - 6)
-        )
-    }
-
     private func showAPIKeyWindow() {
         if let window = apiKeyWindow {
             apiKeyField?.stringValue = ""
@@ -1244,7 +1079,6 @@ final class TokenStatusController: NSObject, NSWindowDelegate, FloatingTokenButt
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.title = "Set OpenAI Admin API Key"
-        window.level = .floating
         window.center()
 
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 330))

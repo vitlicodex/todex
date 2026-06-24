@@ -119,7 +119,7 @@ try makeHelpImage(
         MenuRow(title: "Reports & Data", detail: "safe report, export, raw source warning"),
         MenuRow(title: "Codex Permissions", detail: "approval, sandbox, filesystem, network"),
         MenuRow(title: "API Key & Security", detail: "unlock, lock, clear, clipboard"),
-        MenuRow(title: "Appearance", detail: "floating button, launch at login"),
+        MenuRow(title: "App Settings", detail: "launch at login"),
         MenuRow(title: "Advanced", detail: "feature switches, reset, diagnostics")
     ],
     footer: "The first level stays short; detailed numbers live inside Overview and Reports."

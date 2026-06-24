@@ -13,7 +13,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Optional OpenAI Usage API cost monitoring.
 - Encrypted local API key vault with device-owner authentication.
 - Codex permission monitoring with policy presets.
-- Floating menu fallback button for crowded menu bars.
 - Local help window with bundled documentation.
 - Standalone SwiftPM test runner for core monitoring logic.
 
