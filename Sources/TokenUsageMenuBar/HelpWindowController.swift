@@ -6,10 +6,12 @@ import WebKit
 final class HelpWindowController: NSObject {
     private var window: NSWindow?
     private var webView: WKWebView?
+    private var helpDirectory: URL?
 
     func show() {
         do {
             let helpURL = try findHelpURL()
+            helpDirectory = helpURL.deletingLastPathComponent().standardizedFileURL
             let markdown = try String(contentsOf: helpURL, encoding: .utf8)
             let html = renderHTML(from: markdown)
 
@@ -252,12 +254,22 @@ final class HelpWindowController: NSObject {
 
         let alt = String(line[line.index(after: altStart)..<altEnd])
         let url = String(line[line.index(after: urlStart)..<urlEnd])
+        guard isSafeHelpImageURL(url) else {
+            return "<p>\(inlineHTML(alt))</p>"
+        }
         return """
         <figure>
           <img src="\(escapeAttribute(url))" alt="\(escapeAttribute(alt))">
           <figcaption>\(inlineHTML(alt))</figcaption>
         </figure>
         """
+    }
+
+    private func isSafeHelpImageURL(_ value: String) -> Bool {
+        guard let components = URLComponents(string: value), let scheme = components.scheme else {
+            return true
+        }
+        return scheme.lowercased() == "file"
     }
 
     private func inlineHTML(_ text: String) -> String {
@@ -305,4 +317,40 @@ final class HelpWindowController: NSObject {
     }
 }
 
-extension HelpWindowController: WKNavigationDelegate {}
+extension HelpWindowController: WKNavigationDelegate {
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
+    ) {
+        guard navigationAction.navigationType == .linkActivated else {
+            decisionHandler(.allow)
+            return
+        }
+
+        guard let url = navigationAction.request.url else {
+            decisionHandler(.cancel)
+            return
+        }
+
+        if isAllowedLocalHelpURL(url) {
+            decisionHandler(.allow)
+            return
+        }
+
+        if let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http" {
+            NSWorkspace.shared.open(url)
+        }
+        decisionHandler(.cancel)
+    }
+
+    private func isAllowedLocalHelpURL(_ url: URL) -> Bool {
+        guard url.isFileURL,
+              let helpDirectory else {
+            return false
+        }
+        let targetPath = url.standardizedFileURL.path
+        let helpPath = helpDirectory.path
+        return targetPath == helpPath || targetPath.hasPrefix(helpPath + "/")
+    }
+}

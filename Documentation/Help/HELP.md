@@ -10,6 +10,8 @@ TODEX is a lightweight macOS menu bar app.
 - It reads local Codex `token_count` events.
 - It can optionally use the OpenAI Admin Usage API for organization API costs.
 - It monitors local Codex permission metadata.
+- It estimates local Codex-equivalent cost from local token samples.
+- It detects context explosions and spend firewall alerts.
 - It stores numeric statistics only.
 - It does not store prompt contents.
 - It does not send local Codex token data outside this Mac.
@@ -29,12 +31,10 @@ Full token counts, status, requests, costs, and permission state are shown in th
 The dropdown is organized around the common workflow:
 
 - **Overview**: refresh, tokens, requests, costs, averages.
-- **Usage Log**: today, yesterday, week, month, daily history, Codex projects today.
+- **AI Spend Firewall**: estimated local cost, alerts, context findings.
 - **Reports & Data**: full report, raw source, export, breakdowns.
-- **Codex Permissions**: current permission state and local policy toggles.
-- **API Key & Security**: unlock, lock, set, clear, clipboard key.
-- **App Settings**: launch at login.
-- **Advanced**: feature switches, reset, diagnostics.
+- **Codex Permission Monitor**: current permission state and local alert policy toggles.
+- **Settings & Security**: API key security, launch at login, advanced feature switches, reset, diagnostics.
 
 The app is a background menu bar utility. It does not appear in the Dock or Cmd-Tab. A small control window opens on launch with **Open Menu**, **Set API Key**, **Help**, **Hide Window**, and **Quit App** actions.
 
@@ -52,7 +52,7 @@ The app uses `last_token_usage` as the per-request sample. It deliberately ignor
 
 In TODEX, a **request** is a model/token usage sample, not necessarily one visible user prompt. Codex can create extra model requests for context reloads, tool calls, background work, and long workspace state. If input tokens are much larger than output tokens, repeated context is usually the main cost driver.
 
-The menu header's **AVG / REQ** uses today's tokens divided by today's requests. **Overview** shows today and current-session averages separately because they can use different scopes.
+The menu header's **AVG / REQ** uses today's tokens divided by today's requests. Its cost tile shows **EST. LOCAL** when local Codex estimates are available; actual OpenAI API costs stay separate in **Overview** and reports. **Overview** shows today and current-session averages separately because they can use different scopes.
 
 ![Data flow](images/data-flow.png)
 

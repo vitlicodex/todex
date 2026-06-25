@@ -19,7 +19,7 @@ This plan focuses on keeping the macOS menu bar app responsive while monitoring 
 | --- | --- | --- | --- |
 | P0 | Legacy main-thread refresh path | `TokenUsageViewModel` calls `engine.refresh()` from `@MainActor`. | UI freeze if reused. |
 | P0 | Aggregate recomputation | `TokenUsageStore.statistics` filters/reduces all samples for day/week/month/session. | Menu/report gets slower as history grows. |
-| P0 | Actual vs estimated cost model | Actual Costs API exists; local estimated cost was missing before this pass. | Cost confusion for heavy local Codex usage. |
+| P0 | Actual vs estimated cost model | Actual API cost and estimated local Codex cost now use separate fields and labels. | Keep label drift from reappearing as UI changes. |
 | P1 | File identity | Source state uses path, size, mtime; no fileID/inode. | Rotation/replacement edge cases. |
 | P1 | Discovery scanning | Candidate directories are enumerated after cache expiry. | Large `.codex` trees can delay refresh. |
 | P1 | Structured JSON loading | Non-JSONL JSON path can map/load entire file. | Memory spikes for explicit large files. |
@@ -114,16 +114,16 @@ Current status:
 
 - `CostEstimator`, `TokenPricingProfile`, and `EstimatedTokenCost` now exist in Core.
 - Estimator treats cached input as a subset of input to avoid double-charging.
-- UI/report wiring is not implemented in this pass.
+- Settings, statistics, menu display, and reports expose estimated local Codex cost separately from actual OpenAI Costs API values.
 
 Next actions:
 
-- add settings for selected pricing profile;
-- store estimated local cost separately from actual API cost;
-- show labels:
+- keep selected pricing profile edits cheap and menu-local;
+- add benchmark coverage for estimator recalculation on large histories;
+- keep labels explicit:
   - `Actual OpenAI API cost`;
   - `Estimated local Codex cost`;
-- include selected pricing profile name in reports.
+- continue including the selected pricing profile name in reports.
 
 Tests:
 
@@ -197,13 +197,13 @@ Current status:
 - request/resource timeouts exist;
 - API cache TTL exists in `TokenRefreshWorker`;
 - partial Usage/Costs failure behavior exists;
-- this pass adds typed 429/404/5xx/timeout issues.
+- this pass adds typed 429/404/5xx/timeout issues and an explicit HTTPS same-host/same-port redirect policy.
 
 Plan:
 
 - extract transport and response parser;
 - add pagination loop if API exposes cursor/next page;
-- add redirect delegate to block cross-host Authorization forwarding;
+- keep redirect delegate coverage for cross-host Authorization forwarding;
 - add fixtures for empty/malformed/large response bodies.
 
 Tests:
@@ -215,7 +215,7 @@ Tests:
 - timeout;
 - costs success + usage failure;
 - usage success + costs failure;
-- no Authorization on cross-host redirect.
+- no Authorization on cross-host, downgrade, or port-changing redirect.
 
 Rollback:
 

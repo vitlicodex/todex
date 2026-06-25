@@ -88,11 +88,7 @@ public final class CodexPermissionMonitor: @unchecked Sendable {
 
         do {
             let text = try String(contentsOf: url, encoding: .utf8)
-            let trustedCount = text
-                .split(whereSeparator: \.isNewline)
-                .map(String.init)
-                .filter(isTrustedWorkspaceLine)
-                .count
+            let trustedCount = trustedWorkspaceCount(in: text)
             return ConfigSnapshot(
                 exists: true,
                 trustedWorkspaceCount: trustedCount,
@@ -227,7 +223,7 @@ public final class CodexPermissionMonitor: @unchecked Sendable {
             ?? stringValue(fileSystemSandbox?["kind"])
             ?? stringValue(context["file_system_sandbox_policy"])
             ?? (sandboxType?.lowercased() == "danger-full-access" ? "unrestricted" : nil)
-        let networkFromSandbox = boolValue(sandboxPolicy?["network_access"])
+        let networkFromSandbox = networkPolicyValue(sandboxPolicy?["network_access"])
         let networkFromProfile = networkPolicyValue(permissionProfile?["network"])
         let networkFromTopLevel = networkPolicyValue(context["network"])
         let networkAccess = networkFromSandbox
@@ -389,9 +385,59 @@ public final class CodexPermissionMonitor: @unchecked Sendable {
         return values?.contentModificationDate
     }
 
+    private func trustedWorkspaceCount(in text: String) -> Int {
+        var inProjectTable = false
+        var count = 0
+
+        for rawLine in text.split(whereSeparator: \.isNewline).map(String.init) {
+            let line = stripInlineComment(from: rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+
+            if isTableHeader(line) {
+                inProjectTable = isProjectTableHeader(line)
+                continue
+            }
+
+            if inProjectTable && isTrustedWorkspaceLine(line) {
+                count += 1
+            }
+        }
+
+        return count
+    }
+
+    private func stripInlineComment(from line: String) -> String {
+        var output = ""
+        var quote: Character?
+        for character in line {
+            if character == "\"" || character == "'" {
+                if quote == character {
+                    quote = nil
+                } else if quote == nil {
+                    quote = character
+                }
+            }
+            if character == "#", quote == nil {
+                break
+            }
+            output.append(character)
+        }
+        return output
+    }
+
+    private func isTableHeader(_ line: String) -> Bool {
+        line.hasPrefix("[") && line.hasSuffix("]")
+    }
+
+    private func isProjectTableHeader(_ line: String) -> Bool {
+        line.range(
+            of: #"^\[\s*projects\s*\."#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
     private func isTrustedWorkspaceLine(_ line: String) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.hasPrefix("#") else { return false }
         return trimmed.range(
             of: #"^trust_level\s*=\s*["']trusted["']"#,
             options: [.regularExpression, .caseInsensitive]

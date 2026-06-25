@@ -12,6 +12,9 @@ public enum MonitorFeatureFlag: String, CaseIterable, Codable, Sendable {
     case apiKeyBreakdown
     case dailyPace
     case codexPermissionMonitoring
+    case estimatedLocalCost
+    case contextExplosionDetector
+    case spendFirewall
 
     public var title: String {
         switch self {
@@ -37,7 +40,96 @@ public enum MonitorFeatureFlag: String, CaseIterable, Codable, Sendable {
             return "Daily Pace"
         case .codexPermissionMonitoring:
             return "Codex Permission Monitoring"
+        case .estimatedLocalCost:
+            return "Estimated Local Codex Cost"
+        case .contextExplosionDetector:
+            return "Context Explosion Detector"
+        case .spendFirewall:
+            return "AI Spend Firewall"
         }
+    }
+}
+
+public struct SpendFirewallSettings: Codable, Equatable, Sendable {
+    public var enabled: Bool
+    public var dailyEstimatedBudgetUSD: Double
+    public var hourlyBurnWarningUSD: Double
+    public var hourlyBurnCriticalUSD: Double
+    public var maxTokensPerRequestWarning: Int
+    public var maxTokensPerRequestCritical: Int
+    public var maxProjectShareWarning: Double
+    public var lowOutputShareWarning: Double
+    public var agentLoopDetectionEnabled: Bool
+    public var contextExplosionDetectionEnabled: Bool
+    public var alertCooldownMinutes: Int
+
+    public init(
+        enabled: Bool = true,
+        dailyEstimatedBudgetUSD: Double = 100,
+        hourlyBurnWarningUSD: Double = 25,
+        hourlyBurnCriticalUSD: Double = 100,
+        maxTokensPerRequestWarning: Int = 75_000,
+        maxTokensPerRequestCritical: Int = 150_000,
+        maxProjectShareWarning: Double = 0.80,
+        lowOutputShareWarning: Double = 0.01,
+        agentLoopDetectionEnabled: Bool = true,
+        contextExplosionDetectionEnabled: Bool = true,
+        alertCooldownMinutes: Int = 15
+    ) {
+        self.enabled = enabled
+        self.dailyEstimatedBudgetUSD = dailyEstimatedBudgetUSD
+        self.hourlyBurnWarningUSD = hourlyBurnWarningUSD
+        self.hourlyBurnCriticalUSD = hourlyBurnCriticalUSD
+        self.maxTokensPerRequestWarning = maxTokensPerRequestWarning
+        self.maxTokensPerRequestCritical = maxTokensPerRequestCritical
+        self.maxProjectShareWarning = maxProjectShareWarning
+        self.lowOutputShareWarning = lowOutputShareWarning
+        self.agentLoopDetectionEnabled = agentLoopDetectionEnabled
+        self.contextExplosionDetectionEnabled = contextExplosionDetectionEnabled
+        self.alertCooldownMinutes = alertCooldownMinutes
+    }
+}
+
+public struct ContextExplosionSettings: Codable, Equatable, Sendable {
+    public var recentWindowCount: Int
+    public var minimumBaselineCount: Int
+    public var minimumRequestCount: Int
+    public var minimumRecentTotalTokens: Int
+    public var relativeSpikeMultiplier: Double
+    public var relativeSpikeMinimumInput: Double
+    public var absoluteLargeInputThreshold: Double
+    public var inputDominanceShare: Double
+    public var inputDominanceMinimumTokens: Int
+    public var cachedMissingInputThreshold: Int
+    public var repeatedLargeRequestCount: Int
+    public var highCachedInputShare: Double
+
+    public init(
+        recentWindowCount: Int = 5,
+        minimumBaselineCount: Int = 5,
+        minimumRequestCount: Int = 10,
+        minimumRecentTotalTokens: Int = 250_000,
+        relativeSpikeMultiplier: Double = 4,
+        relativeSpikeMinimumInput: Double = 50_000,
+        absoluteLargeInputThreshold: Double = 100_000,
+        inputDominanceShare: Double = 0.95,
+        inputDominanceMinimumTokens: Int = 1_000_000,
+        cachedMissingInputThreshold: Int = 10_000_000,
+        repeatedLargeRequestCount: Int = 10,
+        highCachedInputShare: Double = 0.25
+    ) {
+        self.recentWindowCount = recentWindowCount
+        self.minimumBaselineCount = minimumBaselineCount
+        self.minimumRequestCount = minimumRequestCount
+        self.minimumRecentTotalTokens = minimumRecentTotalTokens
+        self.relativeSpikeMultiplier = relativeSpikeMultiplier
+        self.relativeSpikeMinimumInput = relativeSpikeMinimumInput
+        self.absoluteLargeInputThreshold = absoluteLargeInputThreshold
+        self.inputDominanceShare = inputDominanceShare
+        self.inputDominanceMinimumTokens = inputDominanceMinimumTokens
+        self.cachedMissingInputThreshold = cachedMissingInputThreshold
+        self.repeatedLargeRequestCount = repeatedLargeRequestCount
+        self.highCachedInputShare = highCachedInputShare
     }
 }
 
@@ -233,6 +325,9 @@ public struct MonitorSettings: Codable, Equatable, Sendable {
     public var codexPermissionRules: [CodexPermissionRule: Bool]
     public var refreshIntervalSeconds: TimeInterval
     public var monthlyBudgetUSD: Double
+    public var localPricingProfile: TokenPricingProfile
+    public var spendFirewall: SpendFirewallSettings
+    public var contextExplosion: ContextExplosionSettings
 
     public init(
         featureFlags: [MonitorFeatureFlag: Bool] = MonitorSettings.defaultFeatureFlags,
@@ -240,7 +335,10 @@ public struct MonitorSettings: Codable, Equatable, Sendable {
         codexPermissionBundles: [CodexPermissionBundle: Bool] = MonitorSettings.defaultPermissionBundles,
         codexPermissionRules: [CodexPermissionRule: Bool] = MonitorSettings.defaultPermissionRules,
         refreshIntervalSeconds: TimeInterval = 120,
-        monthlyBudgetUSD: Double = 100
+        monthlyBudgetUSD: Double = 100,
+        localPricingProfile: TokenPricingProfile = .defaultLocalEstimate,
+        spendFirewall: SpendFirewallSettings = SpendFirewallSettings(),
+        contextExplosion: ContextExplosionSettings = ContextExplosionSettings()
     ) {
         self.featureFlags = featureFlags
         self.codexPermissionPreset = codexPermissionPreset
@@ -248,6 +346,9 @@ public struct MonitorSettings: Codable, Equatable, Sendable {
         self.codexPermissionRules = codexPermissionRules
         self.refreshIntervalSeconds = refreshIntervalSeconds
         self.monthlyBudgetUSD = monthlyBudgetUSD
+        self.localPricingProfile = localPricingProfile
+        self.spendFirewall = spendFirewall
+        self.contextExplosion = contextExplosion
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -257,6 +358,9 @@ public struct MonitorSettings: Codable, Equatable, Sendable {
         case codexPermissionRules
         case refreshIntervalSeconds
         case monthlyBudgetUSD
+        case localPricingProfile
+        case spendFirewall
+        case contextExplosion
     }
 
     public init(from decoder: Decoder) throws {
@@ -273,6 +377,9 @@ public struct MonitorSettings: Codable, Equatable, Sendable {
         }
         refreshIntervalSeconds = try container.decodeIfPresent(TimeInterval.self, forKey: .refreshIntervalSeconds) ?? 120
         monthlyBudgetUSD = try container.decodeIfPresent(Double.self, forKey: .monthlyBudgetUSD) ?? 100
+        localPricingProfile = try container.decodeIfPresent(TokenPricingProfile.self, forKey: .localPricingProfile) ?? .defaultLocalEstimate
+        spendFirewall = try container.decodeIfPresent(SpendFirewallSettings.self, forKey: .spendFirewall) ?? SpendFirewallSettings()
+        contextExplosion = try container.decodeIfPresent(ContextExplosionSettings.self, forKey: .contextExplosion) ?? ContextExplosionSettings()
     }
 
     public static let defaultFeatureFlags: [MonitorFeatureFlag: Bool] = [
@@ -286,7 +393,10 @@ public struct MonitorSettings: Codable, Equatable, Sendable {
         .projectBreakdown: true,
         .apiKeyBreakdown: false,
         .dailyPace: true,
-        .codexPermissionMonitoring: true
+        .codexPermissionMonitoring: true,
+        .estimatedLocalCost: true,
+        .contextExplosionDetector: true,
+        .spendFirewall: true
     ]
 
     public static let defaultPermissionBundles: [CodexPermissionBundle: Bool] = Dictionary(
@@ -351,6 +461,14 @@ public struct MonitorSettings: Codable, Equatable, Sendable {
 
     public mutating func resetPermissionPolicy() {
         applyPermissionPreset(.balanced)
+    }
+
+    public mutating func applyPricingProfile(_ profile: TokenPricingProfile) throws {
+        localPricingProfile = try profile.validated()
+    }
+
+    public mutating func resetPricingProfile(to profileID: String = TokenPricingProfile.defaultLocalEstimate.id) {
+        localPricingProfile = TokenPricingProfile.defaultProfile(id: profileID) ?? .defaultLocalEstimate
     }
 
     private static func matchingPermissionPreset(

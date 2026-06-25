@@ -178,7 +178,8 @@ public final class TokenUsageStore: @unchecked Sendable {
     public func statistics(
         activeSourcePath: String?,
         issues: [TokenMonitorIssue],
-        now: Date = Date()
+        now: Date = Date(),
+        pricingProfile: TokenPricingProfile? = .defaultLocalEstimate
     ) -> TokenUsageStatistics {
         let allSamples = state.samples
         let sessionSamples = sessionSamples(from: allSamples, activeSourcePath: activeSourcePath)
@@ -195,6 +196,11 @@ public final class TokenUsageStore: @unchecked Sendable {
         let yesterdaySamples = samples(allSamples, in: DateInterval(start: yesterdayStart, end: todayStart))
         let weekSamples = samples(allSamples, in: weekInterval)
         let monthSamples = samples(allSamples, in: monthInterval)
+        let sessionEstimatedCost = estimatedLocalCost(for: sessionSamples, pricingProfile: pricingProfile)
+        let todayEstimatedCost = estimatedLocalCost(for: todaySamples, pricingProfile: pricingProfile)
+        let weekEstimatedCost = estimatedLocalCost(for: weekSamples, pricingProfile: pricingProfile)
+        let monthEstimatedCost = estimatedLocalCost(for: monthSamples, pricingProfile: pricingProfile)
+        let totalEstimatedCost = estimatedLocalCost(for: allSamples, pricingProfile: pricingProfile)
 
         var totalTokens = 0
         for sample in allSamples {
@@ -233,7 +239,7 @@ public final class TokenUsageStore: @unchecked Sendable {
             mode = .estimated
         }
 
-        return TokenUsageStatistics(
+        var statistics = TokenUsageStatistics(
             currentSessionPrompts: sessionSamples.count,
             totalPrompts: allSamples.count,
             sessionTokens: sessionTokens,
@@ -256,15 +262,22 @@ public final class TokenUsageStore: @unchecked Sendable {
             budgetUsedRatio: nil,
             dataSource: "Codex local session logs",
             modelBreakdown: [],
-            projectBreakdown: projectBreakdown(from: monthSamples),
+            projectBreakdown: projectBreakdown(from: monthSamples, pricingProfile: pricingProfile),
             apiKeyBreakdown: [],
             todayUsage: periodSummary(label: "Today", samples: todaySamples),
             yesterdayUsage: periodSummary(label: "Yesterday", samples: yesterdaySamples),
             currentWeekUsage: periodSummary(label: "This week", samples: weekSamples),
             currentMonthUsage: periodSummary(label: "This month", samples: monthSamples),
             recentDailyUsage: recentDailyUsage(from: allSamples, calendar: calendar, todayStart: todayStart),
-            todayProjectBreakdown: projectBreakdown(from: todaySamples)
+            todayProjectBreakdown: projectBreakdown(from: todaySamples, pricingProfile: pricingProfile)
         )
+        statistics.estimatedLocalSessionCostUSD = sessionEstimatedCost?.totalCostUSD
+        statistics.estimatedLocalDailyCostUSD = todayEstimatedCost?.totalCostUSD
+        statistics.estimatedLocalWeeklyCostUSD = weekEstimatedCost?.totalCostUSD
+        statistics.estimatedLocalMonthlyCostUSD = monthEstimatedCost?.totalCostUSD
+        statistics.estimatedLocalTotalCostUSD = totalEstimatedCost?.totalCostUSD
+        statistics.estimatedLocalPricingProfileName = pricingProfile?.name
+        return statistics
     }
 
     public func report(activeSourcePath: String?, issues: [TokenMonitorIssue]) -> TokenUsageReport {
@@ -371,8 +384,12 @@ public final class TokenUsageStore: @unchecked Sendable {
         return summaries
     }
 
-    private func projectBreakdown(from samples: [TokenUsageSample]) -> [UsageBreakdown] {
+    private func projectBreakdown(
+        from samples: [TokenUsageSample],
+        pricingProfile: TokenPricingProfile?
+    ) -> [UsageBreakdown] {
         var breakdown: [String: UsageBreakdown] = [:]
+        var samplesByProject: [String: [TokenUsageSample]] = [:]
         for sample in samples {
             let key = sample.projectID ?? "unknown"
             let label = sample.projectName ?? "Unknown Project"
@@ -383,6 +400,16 @@ public final class TokenUsageStore: @unchecked Sendable {
             item.totalTokens += sample.totalTokens
             item.requests += 1
             breakdown[key] = item
+            samplesByProject[key, default: []].append(sample)
+        }
+
+        if let pricingProfile {
+            for (key, projectSamples) in samplesByProject {
+                breakdown[key]?.estimatedLocalCostUSD = CostEstimator.estimate(
+                    samples: projectSamples,
+                    profile: pricingProfile
+                ).totalCostUSD
+            }
         }
 
         return breakdown.values.sorted {
@@ -397,5 +424,15 @@ public final class TokenUsageStore: @unchecked Sendable {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d"
         return formatter.string(from: date)
+    }
+
+    private func estimatedLocalCost(
+        for samples: [TokenUsageSample],
+        pricingProfile: TokenPricingProfile?
+    ) -> TokenCostEstimate? {
+        guard let pricingProfile, !samples.isEmpty else {
+            return nil
+        }
+        return CostEstimator.estimate(samples: samples, profile: pricingProfile)
     }
 }

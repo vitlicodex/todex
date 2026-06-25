@@ -30,14 +30,17 @@ public final class TokenUsageEngine: @unchecked Sendable {
     }
 
     @discardableResult
-    public func refresh(force: Bool = false) -> TokenUsageStatistics {
+    public func refresh(
+        force: Bool = false,
+        pricingProfile: TokenPricingProfile? = .defaultLocalEstimate
+    ) -> TokenUsageStatistics {
         let sources = discoveredSources(force: force)
         var issues: [TokenMonitorIssue] = []
 
         if sources.isEmpty {
             issues.append(.codexLogsNotFound)
             lastIssues = issues
-            return store.statistics(activeSourcePath: activeSourceURL?.path, issues: issues)
+            return store.statistics(activeSourcePath: activeSourceURL?.path, issues: issues, pricingProfile: pricingProfile)
         }
 
         var parsedAnySource = false
@@ -91,7 +94,7 @@ public final class TokenUsageEngine: @unchecked Sendable {
         }
 
         lastIssues = issues
-        return store.statistics(activeSourcePath: activeSourceURL?.path, issues: issues)
+        return store.statistics(activeSourcePath: activeSourceURL?.path, issues: issues, pricingProfile: pricingProfile)
     }
 
     public func resetSession() throws -> TokenUsageStatistics {
@@ -142,6 +145,10 @@ public final class TokenUsageEngine: @unchecked Sendable {
         store.statistics(activeSourcePath: activeSourceURL?.path, issues: lastIssues)
     }
 
+    public func numericSamples() -> [TokenUsageSample] {
+        store.state.samples
+    }
+
     public func writeReportJSON(to destinationURL: URL) throws {
         try store.saveReportJSON(report(), to: destinationURL)
     }
@@ -165,8 +172,14 @@ public final class TokenUsageEngine: @unchecked Sendable {
         - Output tokens: \(stats.outputTokens)
         - Cached input tokens: \(stats.cachedInputTokens)
         - Requests: \(stats.requestCount)
-        - Daily cost USD: \(stats.dailyCostUSD.map { String(format: "%.4f", $0) } ?? "n/a")
-        - Monthly cost USD: \(stats.monthlyCostUSD.map { String(format: "%.4f", $0) } ?? "n/a")
+        - Actual OpenAI API daily cost USD: \(stats.dailyCostUSD.map { String(format: "%.4f", $0) } ?? "n/a")
+        - Actual OpenAI API monthly cost USD: \(stats.monthlyCostUSD.map { String(format: "%.4f", $0) } ?? "n/a")
+        - Estimated local Codex session cost USD: \(stats.estimatedLocalSessionCostUSD.map { String(format: "%.4f", $0) } ?? "n/a")
+        - Estimated local Codex daily cost USD: \(stats.estimatedLocalDailyCostUSD.map { String(format: "%.4f", $0) } ?? "n/a")
+        - Estimated local Codex weekly cost USD: \(stats.estimatedLocalWeeklyCostUSD.map { String(format: "%.4f", $0) } ?? "n/a")
+        - Estimated local Codex monthly cost USD: \(stats.estimatedLocalMonthlyCostUSD.map { String(format: "%.4f", $0) } ?? "n/a")
+        - Estimated local Codex pricing profile: \(stats.estimatedLocalPricingProfileName ?? "n/a")
+        - Note: OpenAI Costs API may not include Codex desktop usage.
         - Today average tokens per request: \(Formatters.decimal(TokenUsageUIDisplay.averageTokensPerRequest(stats.todayUsage)))
         - Session average tokens per request: \(Formatters.decimal(stats.averageTokensPerPrompt))
         - Last 10 request average: \(Formatters.decimal(stats.last10PromptsAverage))

@@ -26,7 +26,7 @@ The main performance risks are not "one obviously bad loop"; they are ownership 
 - discovery and refresh still use path-based identity rather than fileID/inode;
 - sync disk IO is safely off the main menu path in the current controller, but still present in legacy UI code;
 - report generation and settings/storage writes are scattered rather than owned by a reporting/storage boundary;
-- API cost and local estimated cost are conceptually separate, but the code only had a place for actual API costs before this pass.
+- API cost and local estimated cost are now modeled separately, but report rendering remains split across Core and MenuBar paths.
 
 ## Current Architecture Map
 
@@ -38,7 +38,7 @@ The main performance risks are not "one obviously bad loop"; they are ownership 
 | Aggregation/history | `TokenUsageStore` | Stores all samples, seen IDs, source fingerprints/cursors; computes session/day/week/month snapshots on demand. |
 | OpenAI Usage API | `OpenAIUsageClient` | Fetches organization usage buckets through `URLSession`; computes daily/monthly summaries and breakdowns. |
 | OpenAI Costs API | `OpenAIUsageClient` | Fetches cost buckets and merges costs into usage statistics; partial failure behavior exists. |
-| Local estimated cost | `CostEstimator` | Added as a core primitive in this pass; not yet wired into UI/report settings. |
+| Local estimated cost | `CostEstimator`, `TokenPricingProfile`, `TokenUsageStatistics` estimated fields | Wired into settings, store statistics, menu display model, and reports as estimated-only data. |
 | API-key vault | `APIKeyStore` | AppKit target; AES-GCM/PBKDF2 vault with Touch ID/macOS auth and private file checks. |
 | Permission monitoring | `CodexPermissionMonitor` | Reads Codex config and recent session `turn_context` metadata; produces risk snapshot. |
 | Permission config writer | `CodexPermissionConfigWriter` | Updates selected top-level TOML keys and keeps backup. |
@@ -121,7 +121,7 @@ OpenAI Admin API key
 | ARCH-004 | Medium | Discovery | Source discovery recursively scans candidate directories after cache expiry. | Large session trees can delay refresh. | Discovery cache interval and max files per directory. | Cache discovered source set with directory mtime and prioritize newest active files. |
 | ARCH-005 | Medium | Parser | JSONL parser is streaming, but structured JSON path still maps/loads full file. | Large explicit JSON sources can allocate heavily. | Structured JSON file size cap. | Keep caps; document explicit file mode as advanced; add benchmark fixture. |
 | ARCH-006 | Medium | API | Usage/Costs client mixes transport, parsing, status classification, and aggregation. | Harder to test redirects/pagination/error policy. | Mockable `URLSession` injection exists. | Extract transport/parser structs before pagination work. |
-| ARCH-007 | Medium | Cost accounting | Actual OpenAI Costs API and local estimated cost need separate model fields and labels. | Users can misunderstand local Codex spend vs platform API spend. | Actual costs are kept in API fields; `CostEstimator` now exists in Core. | Wire estimator behind explicit settings and report labels. |
+| ARCH-007 | Fixed | Cost accounting | Actual OpenAI Costs API and local estimated cost needed separate model fields and labels. | Users can misunderstand local Codex spend vs platform API spend. | Actual costs stay in API fields; estimated local Codex costs use separate statistics/report/menu fields. | Keep fixture coverage for actual-vs-estimated labels as UI evolves. |
 | ARCH-008 | Medium | Reports | Report Markdown generation is duplicated. | One path can drift from privacy rules or labels. | Both paths now use redacted statistics. | Extract `ReportRenderer` in a small Reports boundary. |
 | ARCH-009 | Low | Diagnostics | No safe timing metrics around parse/discovery/store/API phases. | Performance regressions are harder to diagnose. | Debug logger redacts paths/secrets. | Add content-free timing spans with phase names and durations only. |
 | ARCH-010 | Low | Boundaries | `TokenUsageCore` is doing too many jobs. | Harder ownership and future test boundaries. | Package targets are still small. | Split gradually into API/Storage/Security/Reports only after seams are tested. |
@@ -136,7 +136,7 @@ OpenAI Admin API key
 - `TokenRefreshWorker` actor keeps parsing/network work off the main AppKit menu path.
 - API partial failure behavior can keep Costs data when Usage fails and vice versa.
 - API HTTP error classification now distinguishes 429, 404, 5xx, and timeout.
-- `CostEstimator` now exists as a UI-neutral core primitive for local estimated cost.
+- `CostEstimator` now feeds explicit estimated-local cost statistics, report fields, and menu labels without overwriting actual OpenAI Costs API values.
 
 ## Target Architecture
 

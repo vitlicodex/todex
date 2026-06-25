@@ -37,6 +37,14 @@ public final class TokenUsageParser: @unchecked Sendable {
     private let maxLineBytes: Int
     private let maxSamplesPerFile: Int
     private let maxTraversalDepth: Int
+    private let reasoningTokenKeys = [
+        "reasoning_tokens",
+        "reasoningTokens",
+        "output_reasoning_tokens",
+        "outputReasoningTokens",
+        "completion_reasoning_tokens",
+        "completionReasoningTokens"
+    ]
 
     public init(
         maxStructuredJSONBytes: UInt64 = 25 * 1024 * 1024,
@@ -585,14 +593,16 @@ public final class TokenUsageParser: @unchecked Sendable {
             "inputCachedTokens"
         ]) ?? 0
         let outputTokens = intValue(in: usage, keys: ["output_tokens", "outputTokens"]) ?? 0
-        let total = intValue(in: usage, keys: ["total_tokens", "totalTokens"]) ?? (inputTokens + outputTokens)
+        let reasoningTokens = intValue(in: usage, keys: reasoningTokenKeys) ?? 0
+        let reportedTotal = intValue(in: usage, keys: ["total_tokens", "totalTokens"])
+        let total = reportedTotal ?? (inputTokens + outputTokens)
         guard total > 0 else { return nil }
 
         let timestamp = timestamp(from: dictionary)
             ?? timestamp(from: event)
             ?? inheritedTimestamp
             ?? fallbackDate
-        let stableText = "\(sourceURL.path)|\(location)|codex-token-count|\(timestamp.timeIntervalSince1970)|\(inputTokens)|\(cachedInputTokens)|\(outputTokens)|\(total)"
+        let stableText = "\(sourceURL.path)|\(location)|codex-token-count|\(timestamp.timeIntervalSince1970)|\(inputTokens)|\(cachedInputTokens)|\(outputTokens)|\(reasoningTokens)|\(total)"
 
         return TokenUsageSample(
             id: StableHash.make(stableText),
@@ -600,7 +610,9 @@ public final class TokenUsageParser: @unchecked Sendable {
             inputTokens: inputTokens,
             cachedInputTokens: cachedInputTokens,
             outputTokens: outputTokens,
+            reasoningTokens: reasoningTokens,
             totalTokens: total,
+            reportedTotalTokens: reportedTotal,
             mode: .real,
             sourceID: sourceID,
             sourcePath: sourceURL.path,
@@ -638,6 +650,7 @@ public final class TokenUsageParser: @unchecked Sendable {
             "outputTokens",
             "completionTokens"
         ]) ?? 0
+        let reasoningTokens = intValue(in: dictionary, keys: reasoningTokenKeys) ?? 0
         let explicitTotal = intValue(in: dictionary, keys: [
             "total_tokens",
             "totalTokens"
@@ -649,14 +662,16 @@ public final class TokenUsageParser: @unchecked Sendable {
         }
 
         let timestamp = timestamp(from: dictionary) ?? inheritedTimestamp ?? fallbackDate
-        let stableText = "\(sourceURL.path)|\(location)|\(timestamp.timeIntervalSince1970)|\(inputTokens)|\(cachedInputTokens)|\(outputTokens)|\(total)"
+        let stableText = "\(sourceURL.path)|\(location)|\(timestamp.timeIntervalSince1970)|\(inputTokens)|\(cachedInputTokens)|\(outputTokens)|\(reasoningTokens)|\(total)"
         return TokenUsageSample(
             id: StableHash.make(stableText),
             timestamp: timestamp,
             inputTokens: inputTokens,
             cachedInputTokens: cachedInputTokens,
             outputTokens: outputTokens,
+            reasoningTokens: reasoningTokens,
             totalTokens: total,
+            reportedTotalTokens: explicitTotal,
             mode: .real,
             sourceID: sourceID,
             sourcePath: sourceURL.path,
@@ -730,18 +745,22 @@ public final class TokenUsageParser: @unchecked Sendable {
         let input = regexInt(line, pattern: #"(?:input|prompt)[_\s-]*tokens?\s*[:=]\s*([0-9]+)"#) ?? 0
         let cachedInput = regexInt(line, pattern: #"cached[_\s-]*(?:input[_\s-]*)?tokens?\s*[:=]\s*([0-9]+)"#) ?? 0
         let output = regexInt(line, pattern: #"(?:output|completion)[_\s-]*tokens?\s*[:=]\s*([0-9]+)"#) ?? 0
-        let total = regexInt(line, pattern: #"total[_\s-]*tokens?\s*[:=]\s*([0-9]+)"#) ?? (input + output)
+        let reasoning = regexInt(line, pattern: #"reasoning[_\s-]*tokens?\s*[:=]\s*([0-9]+)"#) ?? 0
+        let reportedTotal = regexInt(line, pattern: #"total[_\s-]*tokens?\s*[:=]\s*([0-9]+)"#)
+        let total = reportedTotal ?? (input + output)
 
         guard total > 0 else { return nil }
 
-        let id = StableHash.make("\(sourceURL.path)|line:\(lineNumber)|\(input)|\(cachedInput)|\(output)|\(total)")
+        let id = StableHash.make("\(sourceURL.path)|line:\(lineNumber)|\(input)|\(cachedInput)|\(output)|\(reasoning)|\(total)")
         return TokenUsageSample(
             id: id,
             timestamp: fallbackDate,
             inputTokens: input,
             cachedInputTokens: cachedInput,
             outputTokens: output,
+            reasoningTokens: reasoning,
             totalTokens: total,
+            reportedTotalTokens: reportedTotal,
             mode: .real,
             sourceID: sourceID,
             sourcePath: sourceURL.path,
