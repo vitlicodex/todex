@@ -1122,17 +1122,24 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
     @objc private func editPricingProfile() {
         let profile = settings.localPricingProfile
         let alert = NSAlert()
-        alert.messageText = "Estimated local Codex cost profile"
-        alert.informativeText = "These prices are only used for local estimates. They are not actual OpenAI billing."
+        alert.messageText = "Edit local cost profile"
+        alert.informativeText = "Used only for estimated local Codex cost. Actual OpenAI billing stays separate."
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
 
+        let formView = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 254))
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.spacing = 8
         stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.widthAnchor.constraint(equalToConstant: 420).isActive = true
+        formView.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: formView.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: formView.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: formView.topAnchor),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: formView.bottomAnchor)
+        ])
 
         let nameField = NSTextField(string: profile.name)
         let inputField = NSTextField(string: Self.decimal(profile.inputPerMillionUSD))
@@ -1141,16 +1148,18 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         let reasoningField = NSTextField(string: profile.reasoningPerMillionUSD == 0 ? "" : Self.decimal(profile.reasoningPerMillionUSD))
         let multiplierField = NSTextField(string: Self.decimal(profile.multiplier))
         let notesField = NSTextField(string: profile.notes ?? "")
+        reasoningField.placeholderString = "optional"
+        notesField.placeholderString = "optional"
 
         addFormRow("Profile name", field: nameField, to: stack)
         addFormRow("Input $ / 1M", field: inputField, to: stack)
         addFormRow("Cached input $ / 1M", field: cachedField, to: stack)
         addFormRow("Output $ / 1M", field: outputField, to: stack)
-        addFormRow("Reasoning $ / 1M optional", field: reasoningField, to: stack)
+        addFormRow("Reasoning $ / 1M", field: reasoningField, to: stack)
         addFormRow("Multiplier", field: multiplierField, to: stack)
         addFormRow("Notes", field: notesField, to: stack)
 
-        alert.accessoryView = stack
+        alert.accessoryView = formView
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
@@ -1387,10 +1396,20 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
     private func addFormRow(_ title: String, field: NSTextField, to stack: NSStackView) {
         let row = NSStackView()
         row.orientation = .horizontal
-        row.spacing = 10
+        row.alignment = .firstBaseline
+        row.spacing = 12
+        row.translatesAutoresizingMaskIntoConstraints = false
         let label = NSTextField(labelWithString: title)
-        label.widthAnchor.constraint(equalToConstant: 155).isActive = true
-        field.widthAnchor.constraint(equalToConstant: 250).isActive = true
+        label.alignment = .right
+        label.lineBreakMode = .byTruncatingTail
+        label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        label.setContentHuggingPriority(.required, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        NSLayoutConstraint.activate([
+            label.widthAnchor.constraint(equalToConstant: 176),
+            field.widthAnchor.constraint(equalToConstant: 360)
+        ])
         row.addArrangedSubview(label)
         row.addArrangedSubview(field)
         stack.addArrangedSubview(row)
