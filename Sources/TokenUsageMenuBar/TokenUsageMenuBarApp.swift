@@ -17,6 +17,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppDebugLogger.log("applicationWillTerminate")
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        controller?.showControlWindow()
+        return true
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
@@ -36,6 +41,8 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
     private var permissionRefreshInFlight = false
     private var statistics: TokenUsageStatistics = .empty
     private var permissionSnapshot: CodexPermissionSnapshot = .disabled
+    private var contextFindings: [ContextExplosionFinding] = []
+    private var firewallAlerts: [SpendFirewallAlert] = []
     private var lastPermissionSignature: String?
     private var lastPermissionRefreshAt: Date?
     private var lastButtonRenderSignature: String?
@@ -113,10 +120,13 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
 
         Task(priority: force ? .userInitiated : .utility) { [weak self] in
             if shouldShowLocalBeforeAPI {
-                let localStatistics = await worker.localRefresh(force: force)
+                let localStatistics = await worker.localRefresh(settings: currentSettings, force: force)
+                let localRiskSignals = await worker.latestRiskSignals()
                 await MainActor.run {
                     guard let self, self.refreshInFlight else { return }
                     self.statistics = localStatistics
+                    self.contextFindings = localRiskSignals.contextFindings
+                    self.firewallAlerts = localRiskSignals.firewallAlerts
                     self.updateButton()
                     self.rebuildMenu()
                     AppDebugLogger.log("local fallback rendered before api refresh todayTokens=\(localStatistics.primaryDisplayUsage.totalTokens) todayRequests=\(localStatistics.primaryDisplayUsage.requests) sessionTokens=\(localStatistics.sessionTokens)")
@@ -128,9 +138,12 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
                 apiKey: currentAPIKey,
                 force: force
             )
+            let nextRiskSignals = await worker.latestRiskSignals()
             await MainActor.run {
                 guard let self else { return }
                 self.statistics = nextStatistics
+                self.contextFindings = nextRiskSignals.contextFindings
+                self.firewallAlerts = nextRiskSignals.firewallAlerts
                 self.refreshInFlight = false
                 self.updateButton()
                 self.rebuildMenu()
@@ -145,9 +158,12 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         let worker = worker
         Task(priority: .utility) { [weak self] in
             let cachedStatistics = await worker.cachedLocalStatistics()
+            let cachedRiskSignals = await worker.latestRiskSignals()
             await MainActor.run {
                 guard let self, !self.refreshInFlight else { return }
                 self.statistics = cachedStatistics
+                self.contextFindings = cachedRiskSignals.contextFindings
+                self.firewallAlerts = cachedRiskSignals.firewallAlerts
                 self.updateButton()
                 self.rebuildMenu()
                 AppDebugLogger.log("cached statistics rendered todayTokens=\(cachedStatistics.primaryDisplayUsage.totalTokens) todayRequests=\(cachedStatistics.primaryDisplayUsage.requests) sessionTokens=\(cachedStatistics.sessionTokens)")
@@ -193,6 +209,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
 
         menu.addItem(.separator())
         addOverviewSubmenu(to: menu)
+        addSpendFirewallSubmenu(to: menu)
         addReportsSubmenu(to: menu)
         addPermissionsSubmenu(to: menu)
         addSettingsSecuritySubmenu(to: menu)
@@ -250,6 +267,9 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
             statistics.activeSourcePath ?? "none",
             formatUSD(statistics.dailyCostUSD),
             formatUSD(statistics.monthlyCostUSD),
+            formatUSD(statistics.estimatedLocalDailyCostUSD),
+            formatUSD(statistics.estimatedLocalMonthlyCostUSD),
+            statistics.estimatedLocalPricingProfileName ?? "none",
             formatBudget(),
             periodSignature(statistics.todayUsage),
             periodSignature(statistics.yesterdayUsage),
@@ -257,7 +277,9 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
             periodSignature(statistics.currentMonthUsage),
             statistics.recentDailyUsage.map(periodSignature).joined(separator: ","),
             usageCalendarScope.rawValue,
-            statistics.issues.map(\.message).joined(separator: "\u{1f}")
+            statistics.issues.map(\.message).joined(separator: "\u{1f}"),
+            firewallAlerts.map { "\($0.kind.rawValue):\($0.severity.rawValue):\($0.projectID ?? ""):\($0.projectName ?? "")" }.joined(separator: ","),
+            contextFindings.map { "\($0.severity.rawValue):\($0.confidence.rawValue):\($0.projectID ?? ""):\(Int($0.recentInputPerRequest))" }.joined(separator: ",")
         ].joined(separator: "|")
             + "|\(breakdownSignature(statistics.modelBreakdown))"
             + "|\(breakdownSignature(statistics.projectBreakdown))"
@@ -268,7 +290,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
     private func breakdownSignature(_ rows: [UsageBreakdown]) -> String {
         rows.prefix(5)
             .map { row in
-                "\(row.label):\(row.inputTokens):\(row.outputTokens):\(row.cachedInputTokens):\(row.requests):\(row.costUSD ?? -1)"
+                "\(row.label):\(row.inputTokens):\(row.outputTokens):\(row.cachedInputTokens):\(row.requests):\(row.costUSD ?? -1):\(row.estimatedLocalCostUSD ?? -1)"
             }
             .joined(separator: ",")
     }
@@ -303,7 +325,26 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
             bundleText,
             ruleText,
             "\(settings.refreshIntervalSeconds)",
-            "\(settings.monthlyBudgetUSD)"
+            "\(settings.monthlyBudgetUSD)",
+            settings.localPricingProfile.id,
+            settings.localPricingProfile.name,
+            "\(settings.localPricingProfile.inputPerMillionUSD)",
+            "\(settings.localPricingProfile.cachedInputPerMillionUSD)",
+            "\(settings.localPricingProfile.outputPerMillionUSD)",
+            "\(settings.localPricingProfile.reasoningPerMillionUSD)",
+            "\(settings.localPricingProfile.multiplier)",
+            settings.localPricingProfile.notes ?? "",
+            "\(settings.spendFirewall.enabled)",
+            "\(settings.spendFirewall.dailyEstimatedBudgetUSD)",
+            "\(settings.spendFirewall.hourlyBurnWarningUSD)",
+            "\(settings.spendFirewall.hourlyBurnCriticalUSD)",
+            "\(settings.spendFirewall.alertCooldownMinutes)",
+            "\(settings.contextExplosion.recentWindowCount)",
+            "\(settings.contextExplosion.minimumBaselineCount)",
+            "\(settings.contextExplosion.minimumRequestCount)",
+            "\(settings.contextExplosion.minimumRecentTotalTokens)",
+            "\(settings.contextExplosion.relativeSpikeMultiplier)",
+            "\(settings.contextExplosion.inputDominanceShare)"
         ].joined(separator: "|")
     }
 
@@ -337,9 +378,90 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
                 addDisabled(line, to: submenu)
             }
             submenu.addItem(.separator())
-            addDisabled("Daily cost: \(formatUSD(statistics.dailyCostUSD))", to: submenu)
-            addDisabled("Monthly cost: \(formatUSD(statistics.monthlyCostUSD))", to: submenu)
+            addDisabled("Actual API daily cost: \(formatUSD(statistics.dailyCostUSD))", to: submenu)
+            addDisabled("Actual API monthly cost: \(formatUSD(statistics.monthlyCostUSD))", to: submenu)
             addDisabled("Budget: \(formatBudget())", to: submenu)
+        }
+    }
+
+    private func addSpendFirewallSubmenu(to menu: NSMenu) {
+        addSubmenu("AI Spend Firewall", to: menu) { submenu in
+            addDisabled("Status: \(firewallAlerts.isEmpty ? "No active alerts" : "\(firewallAlerts.count) alert(s)")", to: submenu)
+            addDisabled("Estimated local today: \(formatUSD(statistics.estimatedLocalDailyCostUSD))", to: submenu)
+            addDisabled("Estimated local month: \(formatUSD(statistics.estimatedLocalMonthlyCostUSD))", to: submenu)
+            addDisabled("Actual API month: \(formatUSD(statistics.monthlyCostUSD))", to: submenu)
+            addDisabled("Pricing profile: \(settings.localPricingProfile.name)", to: submenu)
+            addDisabled("OpenAI Costs API may not include Codex desktop usage.", to: submenu)
+
+            if !firewallAlerts.isEmpty {
+                submenu.addItem(.separator())
+                addDisabled("Alerts", to: submenu)
+                for alert in firewallAlerts.prefix(5) {
+                    addDisabled("\(firewallSeverityLabel(alert.severity)): \(alert.title)", to: submenu)
+                    addDisabled(compactMenuText(alert.detail, maxLength: 54), to: submenu)
+                    for evidence in alert.evidence.prefix(2) {
+                        addDisabled("  \(compactMenuText(evidence, maxLength: 54))", to: submenu)
+                    }
+                }
+
+                submenu.addItem(.separator())
+                addDisabled("Action Center", to: submenu)
+                addFirewallActionItems(to: submenu)
+            }
+
+            submenu.addItem(.separator())
+            addFirewallCooldownSubmenu(to: submenu)
+            submenu.addItem(.separator())
+            addDisabled("Context findings: \(contextFindings.count)", to: submenu)
+            for finding in contextFindings.prefix(3) {
+                let project = finding.projectName.map { " · \($0)" } ?? ""
+                addDisabled(
+                    "\(firewallSeverityLabel(finding.severity)): \(finding.confidence.rawValue) · \(TokenUsageUIDisplay.compact(Int(finding.recentInputPerRequest))) input/req\(project)",
+                    to: submenu
+                )
+            }
+        }
+    }
+
+    private func addFirewallActionItems(to menu: NSMenu) {
+        var seen: Set<SpendFirewallActionKind> = []
+        let actions = firewallAlerts.flatMap(\.recommendedActionItems).filter { action in
+            if seen.contains(action.kind) {
+                return false
+            }
+            seen.insert(action.kind)
+            return true
+        }
+
+        for action in actions {
+            let title = action.requiresConfirmation ? "\(action.title)..." : action.title
+            let item = NSMenuItem(title: title, action: #selector(performFirewallAction(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = action.kind.rawValue
+            item.toolTip = action.detail
+            menu.addItem(item)
+        }
+
+        if actions.contains(where: \.modifiesCodexConfig) {
+            addDisabled("Codex Desktop may need restart after config changes.", to: menu)
+        }
+    }
+
+    private func addFirewallCooldownSubmenu(to menu: NSMenu) {
+        addSubmenu("Alert Cooldown", to: menu) { submenu in
+            let options: [(String, Int)] = [
+                ("Off", 0),
+                ("5 minutes", 5),
+                ("15 minutes", 15),
+                ("60 minutes", 60)
+            ]
+            for option in options {
+                let item = NSMenuItem(title: option.0, action: #selector(setFirewallCooldown(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = option.1
+                item.state = settings.spendFirewall.alertCooldownMinutes == option.1 ? .on : .off
+                submenu.addItem(item)
+            }
         }
     }
 
@@ -430,6 +552,10 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
             addAPIKeySecurityItems(to: submenu)
 
             submenu.addItem(.separator())
+            addDisabled("Estimated local Codex cost", to: submenu)
+            addPricingProfileItems(to: submenu)
+
+            submenu.addItem(.separator())
             addDisabled("App", to: submenu)
             addAppSettingsItems(to: submenu)
 
@@ -465,6 +591,25 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
             representedObject: "",
             to: menu
         )
+    }
+
+    private func addPricingProfileItems(to menu: NSMenu) {
+        addDisabled("Profile: \(settings.localPricingProfile.name)", to: menu)
+        addDisabled(
+            "Input \(formatPrice(settings.localPricingProfile.inputPerMillionUSD)) · cached \(formatPrice(settings.localPricingProfile.cachedInputPerMillionUSD)) · output \(formatPrice(settings.localPricingProfile.outputPerMillionUSD))",
+            to: menu
+        )
+        addDisabled("Multiplier: \(Self.decimal(settings.localPricingProfile.multiplier))x", to: menu)
+        addAction("Edit Pricing Profile...", #selector(editPricingProfile), to: menu)
+        addSubmenu("Reset to Default Profile", to: menu) { submenu in
+            for profile in TokenPricingProfile.defaultProfiles {
+                let item = NSMenuItem(title: profile.name, action: #selector(resetPricingProfile(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = profile.id
+                item.state = settings.localPricingProfile.id == profile.id ? .on : .off
+                submenu.addItem(item)
+            }
+        }
     }
 
     private func addAdvancedItems(to menu: NSMenu) {
@@ -519,8 +664,9 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         addDisabled(title, to: menu)
         for row in rows.prefix(5) {
             let cost = row.costUSD.map { " · \(formatUSD($0))" } ?? ""
+            let estimated = row.estimatedLocalCostUSD.map { " · est \(formatUSD($0))" } ?? ""
             let label = compactMenuText(row.label, maxLength: 28)
-            addDisabled("\(label): \(Self.compact(row.totalTokens)) tok · \(row.requests) req\(cost)", to: menu, toolTip: row.label)
+            addDisabled("\(label): \(Self.compact(row.totalTokens)) tok · \(row.requests) req\(cost)\(estimated)", to: menu, toolTip: row.label)
         }
     }
 
@@ -703,13 +849,54 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
                 """
                 Codex CLI config was updated.
 
-                Config: \(result.configURL.path)
-                Backup: \(result.backupURL?.path ?? "none")
+                Config: \(TokenReportPrivacy.redactedPath(result.configURL.path))
+                Backup: \(result.backupURL.map { TokenReportPrivacy.redactedPath($0.path) } ?? "none")
 
                 Start a new Codex session or restart Codex for the config value to be picked up. The current session can still show the old permissions until then.
                 """
             )
             refreshPermissionsAsync(logChanges: true, force: true)
+        } catch {
+            showError(error.localizedDescription)
+        }
+    }
+
+    private func applyCodexCLISafeMode() {
+        let preset = CodexPermissionPreset.lockedDown
+        let configuration = CodexPermissionConfigWriter.cliConfiguration(for: preset)
+        let alert = NSAlert()
+        alert.messageText = "Apply Codex CLI Safe Mode?"
+        alert.informativeText = """
+        This will apply Level \(preset.level): \(preset.title) to Codex CLI config after your confirmation:
+
+        approval_policy = "\(configuration.approvalPolicy)"
+        sandbox_mode = "\(configuration.sandboxMode)"
+        [sandbox_workspace_write].network_access = \(configuration.workspaceWriteNetworkAccess)
+
+        This affects new Codex CLI sessions after restart. It does not stop, pause, or control the running Codex Desktop session. Codex Desktop may need restart before it reflects new CLI config.
+        """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Apply Safe Mode")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        do {
+            settings.applyPermissionPreset(preset)
+            try settingsStore.save(settings)
+            let result = try CodexPermissionConfigWriter().applyPreset(preset)
+            showInfo(
+                """
+                Codex CLI Safe Mode config was updated.
+
+                Config: \(TokenReportPrivacy.redactedPath(result.configURL.path))
+                Backup: \(result.backupURL.map { TokenReportPrivacy.redactedPath($0.path) } ?? "none")
+
+                Start a new Codex session or restart Codex for the config value to be picked up.
+                """
+            )
+            refreshPermissionsAsync(logChanges: true, force: true)
+            rebuildMenu()
         } catch {
             showError(error.localizedDescription)
         }
@@ -913,7 +1100,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         }
     }
 
-    @objc private func showControlWindow() {
+    @objc func showControlWindow() {
         showStartupWindow()
     }
 
@@ -928,10 +1115,143 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 6), in: sender)
     }
 
+    @objc private func hideControlWindow() {
+        startupWindow?.orderOut(nil)
+    }
+
     @objc private func toggleLaunchAtLogin() {
         do {
             try launchAtLogin.setEnabled(!launchAtLogin.isEnabled)
             rebuildMenu()
+        } catch {
+            showError(error.localizedDescription)
+        }
+    }
+
+    @objc private func editPricingProfile() {
+        let profile = settings.localPricingProfile
+        let alert = NSAlert()
+        alert.messageText = "Edit local cost profile"
+        alert.informativeText = "Used only for estimated local Codex cost. Actual OpenAI billing stays separate."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+
+        let formView = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 254))
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        formView.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: formView.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: formView.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: formView.topAnchor),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: formView.bottomAnchor)
+        ])
+
+        let nameField = NSTextField(string: profile.name)
+        let inputField = NSTextField(string: Self.decimal(profile.inputPerMillionUSD))
+        let cachedField = NSTextField(string: Self.decimal(profile.cachedInputPerMillionUSD))
+        let outputField = NSTextField(string: Self.decimal(profile.outputPerMillionUSD))
+        let reasoningField = NSTextField(string: profile.reasoningPerMillionUSD == 0 ? "" : Self.decimal(profile.reasoningPerMillionUSD))
+        let multiplierField = NSTextField(string: Self.decimal(profile.multiplier))
+        let notesField = NSTextField(string: profile.notes ?? "")
+        reasoningField.placeholderString = "optional"
+        notesField.placeholderString = "optional"
+
+        addFormRow("Profile name", field: nameField, to: stack)
+        addFormRow("Input $ / 1M", field: inputField, to: stack)
+        addFormRow("Cached input $ / 1M", field: cachedField, to: stack)
+        addFormRow("Output $ / 1M", field: outputField, to: stack)
+        addFormRow("Reasoning $ / 1M", field: reasoningField, to: stack)
+        addFormRow("Multiplier", field: multiplierField, to: stack)
+        addFormRow("Notes", field: notesField, to: stack)
+
+        alert.accessoryView = formView
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        do {
+            let updated = TokenPricingProfile(
+                id: profile.id,
+                name: nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines),
+                inputPerMillionUSD: try parsePrice(inputField.stringValue, fieldName: "Input price"),
+                cachedInputPerMillionUSD: try parsePrice(cachedField.stringValue, fieldName: "Cached input price"),
+                outputPerMillionUSD: try parsePrice(outputField.stringValue, fieldName: "Output price"),
+                reasoningPerMillionUSD: try parseOptionalPrice(reasoningField.stringValue, fieldName: "Reasoning price"),
+                multiplier: try parsePrice(multiplierField.stringValue, fieldName: "Multiplier"),
+                notes: notesField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? nil
+                    : notesField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            try settings.applyPricingProfile(updated)
+            try settingsStore.save(settings)
+            lastMenuRenderSignature = nil
+            rebuildMenu()
+            refresh(force: true)
+        } catch {
+            showError(error.localizedDescription)
+        }
+    }
+
+    @objc private func resetPricingProfile(_ sender: NSMenuItem) {
+        guard let profileID = sender.representedObject as? String else { return }
+        settings.resetPricingProfile(to: profileID)
+        do {
+            try settingsStore.save(settings)
+            lastMenuRenderSignature = nil
+            rebuildMenu()
+            refresh(force: true)
+        } catch {
+            showError(error.localizedDescription)
+        }
+    }
+
+    @objc private func performFirewallAction(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let kind = SpendFirewallActionKind(rawValue: rawValue) else {
+            return
+        }
+
+        switch kind {
+        case .openProjectSessionBreakdown:
+            openFullReport()
+        case .copyReduceContextPrompt:
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(SpendFirewallActionCatalog.reduceContextPrompt, forType: .string)
+            showInfo("A generic reduce-context prompt was copied. It contains no prompt history, logs, API keys, or private paths.")
+        case .suggestRestartOrCompactContext:
+            showInfo(
+                """
+                Suggested non-destructive next step:
+
+                1. Ask Codex to summarize current state.
+                2. Start a fresh session or compact context manually.
+                3. Re-open only the files needed for the next task.
+
+                TODEX will not stop, pause, or control Codex automatically.
+                """
+            )
+        case .switchTodexPolicyGuarded:
+            settings.applyPermissionPreset(.guarded)
+            savePermissionPolicyAndRefresh()
+        case .switchTodexPolicyLockedDown:
+            settings.applyPermissionPreset(.lockedDown)
+            savePermissionPolicyAndRefresh()
+        case .applyCodexCLISafeMode:
+            applyCodexCLISafeMode()
+        }
+    }
+
+    @objc private func setFirewallCooldown(_ sender: NSMenuItem) {
+        guard let minutes = sender.representedObject as? Int else { return }
+        settings.spendFirewall.alertCooldownMinutes = max(0, minutes)
+        do {
+            try settingsStore.save(settings)
+            lastMenuRenderSignature = nil
+            rebuildMenu()
+            refresh(force: true)
         } catch {
             showError(error.localizedDescription)
         }
@@ -1038,6 +1358,10 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         return formatUSD(value)
     }
 
+    private func formatPrice(_ value: Double) -> String {
+        "$\(Self.decimal(value))/1M"
+    }
+
     private func formatUSD(_ value: Double) -> String {
         if value >= 1_000 {
             return String(format: "$%.1fk", value / 1_000)
@@ -1055,8 +1379,68 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         return "\(formatUSD(settings.monthlyBudgetUSD)) · \(Self.integer(ratio * 100))%"
     }
 
+    private func firewallSeverityLabel(_ severity: SpendFirewallSeverity) -> String {
+        switch severity {
+        case .info:
+            return "INFO"
+        case .warning:
+            return "WARNING"
+        case .critical:
+            return "CRITICAL"
+        }
+    }
+
     private static func integer(_ value: Double) -> String {
         String(format: "%.0f", value)
+    }
+
+    private static func decimal(_ value: Double) -> String {
+        if value.rounded() == value {
+            return String(format: "%.0f", value)
+        }
+        return String(format: "%.4f", value).replacingOccurrences(of: #"0+$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\.$"#, with: "", options: .regularExpression)
+    }
+
+    private func addFormRow(_ title: String, field: NSTextField, to stack: NSStackView) {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .firstBaseline
+        row.spacing = 12
+        row.translatesAutoresizingMaskIntoConstraints = false
+        let label = NSTextField(labelWithString: title)
+        label.alignment = .right
+        label.lineBreakMode = .byTruncatingTail
+        label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        label.setContentHuggingPriority(.required, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        NSLayoutConstraint.activate([
+            label.widthAnchor.constraint(equalToConstant: 176),
+            field.widthAnchor.constraint(equalToConstant: 360)
+        ])
+        row.addArrangedSubview(label)
+        row.addArrangedSubview(field)
+        stack.addArrangedSubview(row)
+    }
+
+    private func parsePrice(_ raw: String, fieldName: String) throws -> Double {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = Double(text.replacingOccurrences(of: ",", with: ".")) else {
+            throw NSError(domain: "TODEX", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(fieldName) must be a number."])
+        }
+        if value < 0 {
+            throw NSError(domain: "TODEX", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(fieldName) cannot be negative."])
+        }
+        return value
+    }
+
+    private func parseOptionalPrice(_ raw: String, fieldName: String) throws -> Double {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty {
+            return 0
+        }
+        return try parsePrice(text, fieldName: fieldName)
     }
 
     private func pendingPermissionSnapshot() -> CodexPermissionSnapshot {
@@ -1203,14 +1587,12 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
 
     private func showStartupWindow() {
         if let window = startupWindow {
-            window.center()
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
+            presentControlWindow(window)
             return
         }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 392, height: 160),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 166),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -1218,51 +1600,62 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.title = "TODEX"
         window.titleVisibility = .hidden
-        window.center()
+        window.collectionBehavior = [.moveToActiveSpace]
 
-        let content = NSView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 392, height: 160))
+        let content = NSView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 520, height: 166))
         content.autoresizingMask = [.width, .height]
 
-        let iconView = NSImageView(frame: NSRect(x: 22, y: 88, width: 42, height: 42))
+        let iconView = NSImageView(frame: NSRect(x: 22, y: 94, width: 42, height: 42))
         iconView.image = NSApp.applicationIconImage
         iconView.imageScaling = .scaleProportionallyUpOrDown
         content.addSubview(iconView)
 
         let title = NSTextField(labelWithString: "TODEX is running")
         title.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
-        title.frame = NSRect(x: 78, y: 112, width: 292, height: 22)
+        title.frame = NSRect(x: 78, y: 118, width: 420, height: 22)
         content.addSubview(title)
 
-        let body = NSTextField(labelWithString: "Use the TODEX menu bar item for status and controls. Closing this window keeps monitoring active.")
+        let body = NSTextField(labelWithString: "Use the TODEX menu bar item for status and controls. If macOS hides it, use Open Menu here. Closing or hiding this window keeps monitoring active.")
         body.font = NSFont.systemFont(ofSize: 12)
         body.textColor = .secondaryLabelColor
         body.lineBreakMode = .byWordWrapping
         body.maximumNumberOfLines = 2
-        body.frame = NSRect(x: 78, y: 72, width: 292, height: 36)
+        body.frame = NSRect(x: 78, y: 76, width: 420, height: 40)
         content.addSubview(body)
 
         let openMenuButton = NSButton(title: "Open Menu", target: self, action: #selector(openMenuFromControlWindow(_:)))
         openMenuButton.keyEquivalent = "\r"
-        openMenuButton.frame = NSRect(x: 22, y: 24, width: 102, height: 30)
+        openMenuButton.frame = NSRect(x: 22, y: 24, width: 108, height: 30)
         content.addSubview(openMenuButton)
 
         let keyButton = NSButton(title: "Set API Key", target: self, action: #selector(setAPIKey))
-        keyButton.frame = NSRect(x: 132, y: 24, width: 100, height: 30)
+        keyButton.frame = NSRect(x: 140, y: 24, width: 108, height: 30)
         content.addSubview(keyButton)
 
         let helpButton = NSButton(title: "Help", target: self, action: #selector(openHelp))
-        helpButton.frame = NSRect(x: 240, y: 24, width: 62, height: 30)
+        helpButton.frame = NSRect(x: 258, y: 24, width: 70, height: 30)
         content.addSubview(helpButton)
 
+        let hideButton = NSButton(title: "Hide", target: self, action: #selector(hideControlWindow))
+        hideButton.frame = NSRect(x: 338, y: 24, width: 70, height: 30)
+        content.addSubview(hideButton)
+
         let quitButton = NSButton(title: "Quit", target: self, action: #selector(quit))
-        quitButton.frame = NSRect(x: 310, y: 24, width: 60, height: 30)
+        quitButton.frame = NSRect(x: 418, y: 24, width: 80, height: 30)
         content.addSubview(quitButton)
 
         window.contentView = content
         startupWindow = window
+        presentControlWindow(window)
+        AppDebugLogger.log("startup window shown")
+    }
+
+    private func presentControlWindow(_ window: NSWindow) {
+        window.center()
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
-        AppDebugLogger.log("startup window shown")
+        window.orderFrontRegardless()
+        AppDebugLogger.log("control window shown")
     }
 
     private func showAPIKeyWindow() {
@@ -1444,6 +1837,13 @@ private struct APICacheEntry {
     var statistics: TokenUsageStatistics
 }
 
+fileprivate struct TokenRiskSignals: Sendable {
+    var contextFindings: [ContextExplosionFinding]
+    var firewallAlerts: [SpendFirewallAlert]
+
+    static let empty = TokenRiskSignals(contextFindings: [], firewallAlerts: [])
+}
+
 actor PermissionRefreshWorker {
     private let monitor = CodexPermissionMonitor()
 
@@ -1456,11 +1856,13 @@ actor TokenRefreshWorker {
     private let localEngine = TokenUsageEngine()
     private let apiClient = OpenAIUsageClient()
     private var lastStatistics: TokenUsageStatistics = .empty
+    private var lastRiskSignals: TokenRiskSignals = .empty
     private var apiCache: APICacheEntry?
 
-    func localRefresh(force: Bool = false) -> TokenUsageStatistics {
-        let statistics = localEngine.refresh(force: force)
+    func localRefresh(settings: MonitorSettings = MonitorSettings(), force: Bool = false) -> TokenUsageStatistics {
+        let statistics = localEngine.refresh(force: force, pricingProfile: settings.localPricingProfile)
         lastStatistics = statistics
+        updateRiskSignals(statistics: statistics, settings: settings)
         return statistics
     }
 
@@ -1468,6 +1870,10 @@ actor TokenRefreshWorker {
         let statistics = localEngine.cachedStatistics()
         lastStatistics = statistics
         return statistics
+    }
+
+    fileprivate func latestRiskSignals() -> TokenRiskSignals {
+        lastRiskSignals
     }
 
     func refresh(settings: MonitorSettings, apiKey: String?, force: Bool = false) async -> TokenUsageStatistics {
@@ -1479,14 +1885,16 @@ actor TokenRefreshWorker {
                     force: force
                 )
                 if settings.isEnabled(.localFallback) {
-                    let localStatistics = localEngine.refresh(force: force)
+                    let localStatistics = localEngine.refresh(force: force, pricingProfile: settings.localPricingProfile)
                     if shouldShowLocalStatistics(apiStatistics: apiStatistics, localStatistics: localStatistics) {
                         lastStatistics = merge(localStatistics: localStatistics, apiStatistics: apiStatistics)
+                        updateRiskSignals(statistics: lastStatistics, settings: settings)
                         return lastStatistics
                     }
                 }
 
                 lastStatistics = apiStatistics
+                lastRiskSignals = .empty
                 return lastStatistics
             }
             if !settings.isEnabled(.localFallback) {
@@ -1496,11 +1904,13 @@ actor TokenRefreshWorker {
                 stats.activeSourcePath = "https://api.openai.com/v1/organization/usage/completions"
                 stats.issues = [.apiKeyMissing]
                 lastStatistics = stats
+                lastRiskSignals = .empty
                 return stats
             }
         }
 
-        lastStatistics = localEngine.refresh(force: force)
+        lastStatistics = localEngine.refresh(force: force, pricingProfile: settings.localPricingProfile)
+        updateRiskSignals(statistics: lastStatistics, settings: settings)
         return lastStatistics
     }
 
@@ -1534,7 +1944,10 @@ actor TokenRefreshWorker {
             .budgetAlerts,
             .modelBreakdown,
             .projectBreakdown,
-            .apiKeyBreakdown
+            .apiKeyBreakdown,
+            .estimatedLocalCost,
+            .contextExplosionDetector,
+            .spendFirewall
         ]
         let featureText = relevantFeatures
             .map { "\($0.rawValue)=\(settings.isEnabled($0))" }
@@ -1542,7 +1955,9 @@ actor TokenRefreshWorker {
         return [
             apiKeyFingerprint(apiKey),
             featureText,
-            "budget=\(settings.monthlyBudgetUSD)"
+            "budget=\(settings.monthlyBudgetUSD)",
+            "pricing=\(settings.localPricingProfile.id):\(settings.localPricingProfile.name):\(settings.localPricingProfile.inputPerMillionUSD):\(settings.localPricingProfile.cachedInputPerMillionUSD):\(settings.localPricingProfile.outputPerMillionUSD):\(settings.localPricingProfile.reasoningPerMillionUSD):\(settings.localPricingProfile.multiplier)",
+            "firewall=\(settings.spendFirewall.enabled):\(settings.spendFirewall.hourlyBurnWarningUSD):\(settings.spendFirewall.hourlyBurnCriticalUSD)"
         ].joined(separator: "|")
     }
 
@@ -1590,6 +2005,24 @@ actor TokenRefreshWorker {
         return merged
     }
 
+    private func updateRiskSignals(statistics: TokenUsageStatistics, settings: MonitorSettings) {
+        let samples = localEngine.numericSamples()
+        let contextFindings = settings.isEnabled(.contextExplosionDetector)
+            ? ContextExplosionDetector().detect(samples: samples, settings: settings)
+            : []
+        let firewallAlerts = SpendFirewallEvaluator().evaluate(
+            snapshot: statistics,
+            samples: samples,
+            settings: settings,
+            contextFindings: contextFindings,
+            previousAlerts: lastRiskSignals.firewallAlerts
+        )
+        lastRiskSignals = TokenRiskSignals(
+            contextFindings: contextFindings,
+            firewallAlerts: firewallAlerts
+        )
+    }
+
     func resetSession() throws -> TokenUsageStatistics {
         lastStatistics = try localEngine.resetSession()
         return lastStatistics
@@ -1610,6 +2043,22 @@ actor TokenRefreshWorker {
 
     func writeMarkdownReport(to url: URL) throws {
         let stats = lastStatistics.privacyRedactedForReport()
+        let alerts = lastRiskSignals.firewallAlerts
+        let firewallSection: String
+        if alerts.isEmpty {
+            firewallSection = "- No active firewall alerts"
+        } else {
+            firewallSection = alerts.prefix(5).map { alert in
+                let evidence = alert.evidence.prefix(3).map { "  - Evidence: \($0)" }.joined(separator: "\n")
+                let actions = alert.recommendedActionItems.prefix(5).map { "  - Action: \($0.title)\($0.requiresConfirmation ? " (requires confirmation)" : "")" }.joined(separator: "\n")
+                return """
+                - \(alert.severity.rawValue.uppercased()): \(alert.title)
+                  - Detail: \(alert.detail)
+                \(evidence.isEmpty ? "" : evidence)
+                \(actions.isEmpty ? "" : actions)
+                """
+            }.joined(separator: "\n")
+        }
         let text = """
         # TODEX Usage Report
 
@@ -1626,8 +2075,16 @@ actor TokenRefreshWorker {
         - Input tokens today: \(stats.primaryDisplayUsage.inputTokens)
         - Output tokens today: \(stats.primaryDisplayUsage.outputTokens)
         - Cached input tokens today: \(stats.cachedInputTokens)
-        - Daily cost: \(stats.dailyCostUSD.map { String(format: "$%.4f", $0) } ?? "n/a")
-        - Monthly cost: \(stats.monthlyCostUSD.map { String(format: "$%.4f", $0) } ?? "n/a")
+        - Actual OpenAI API daily cost: \(stats.dailyCostUSD.map { String(format: "$%.4f", $0) } ?? "n/a")
+        - Actual OpenAI API monthly cost: \(stats.monthlyCostUSD.map { String(format: "$%.4f", $0) } ?? "n/a")
+        - Estimated local Codex daily cost: \(stats.estimatedLocalDailyCostUSD.map { String(format: "$%.4f", $0) } ?? "n/a")
+        - Estimated local Codex monthly cost: \(stats.estimatedLocalMonthlyCostUSD.map { String(format: "$%.4f", $0) } ?? "n/a")
+        - Estimated local Codex pricing profile: \(stats.estimatedLocalPricingProfileName ?? "n/a")
+        - Note: OpenAI Costs API may not include Codex desktop usage.
+
+        ## Firewall Alerts
+
+        \(firewallSection)
 
         ## Usage Log
 

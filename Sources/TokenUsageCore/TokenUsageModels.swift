@@ -188,6 +188,7 @@ public struct UsageBreakdown: Codable, Equatable, Sendable {
     public var totalTokens: Int
     public var requests: Int
     public var costUSD: Double?
+    public var estimatedLocalCostUSD: Double?
 
     public init(
         label: String,
@@ -196,7 +197,8 @@ public struct UsageBreakdown: Codable, Equatable, Sendable {
         cachedInputTokens: Int = 0,
         totalTokens: Int = 0,
         requests: Int = 0,
-        costUSD: Double? = nil
+        costUSD: Double? = nil,
+        estimatedLocalCostUSD: Double? = nil
     ) {
         self.label = label
         self.inputTokens = inputTokens
@@ -205,6 +207,7 @@ public struct UsageBreakdown: Codable, Equatable, Sendable {
         self.totalTokens = totalTokens
         self.requests = requests
         self.costUSD = costUSD
+        self.estimatedLocalCostUSD = estimatedLocalCostUSD
     }
 }
 
@@ -214,7 +217,9 @@ public struct TokenUsageSample: Codable, Equatable, Sendable {
     public let inputTokens: Int
     public let cachedInputTokens: Int
     public let outputTokens: Int
+    public let reasoningTokens: Int
     public let totalTokens: Int
+    public let reportedTotalTokens: Int?
     public let mode: UsageMode
     public let sourceID: String
     public let sourcePath: String
@@ -227,7 +232,9 @@ public struct TokenUsageSample: Codable, Equatable, Sendable {
         inputTokens: Int,
         cachedInputTokens: Int = 0,
         outputTokens: Int,
+        reasoningTokens: Int = 0,
         totalTokens: Int,
+        reportedTotalTokens: Int? = nil,
         mode: UsageMode,
         sourceID: String,
         sourcePath: String,
@@ -239,12 +246,26 @@ public struct TokenUsageSample: Codable, Equatable, Sendable {
         self.inputTokens = inputTokens
         self.cachedInputTokens = cachedInputTokens
         self.outputTokens = outputTokens
+        self.reasoningTokens = reasoningTokens
         self.totalTokens = totalTokens
+        self.reportedTotalTokens = reportedTotalTokens
         self.mode = mode
         self.sourceID = sourceID
         self.sourcePath = sourcePath
         self.projectID = projectID
         self.projectName = projectName
+    }
+
+    public var computedInputOutputTokens: Int {
+        inputTokens + outputTokens
+    }
+
+    public var computedInputOutputReasoningTokens: Int {
+        inputTokens + outputTokens + reasoningTokens
+    }
+
+    public var totalDiffersFromInputOutput: Bool {
+        totalTokens != computedInputOutputTokens
     }
 
     public func withProject(projectID: String?, projectName: String?) -> TokenUsageSample {
@@ -254,7 +275,9 @@ public struct TokenUsageSample: Codable, Equatable, Sendable {
             inputTokens: inputTokens,
             cachedInputTokens: cachedInputTokens,
             outputTokens: outputTokens,
+            reasoningTokens: reasoningTokens,
             totalTokens: totalTokens,
+            reportedTotalTokens: reportedTotalTokens,
             mode: mode,
             sourceID: sourceID,
             sourcePath: sourcePath,
@@ -270,7 +293,9 @@ public struct TokenUsageSample: Codable, Equatable, Sendable {
             inputTokens: inputTokens,
             cachedInputTokens: cachedInputTokens,
             outputTokens: outputTokens,
+            reasoningTokens: reasoningTokens,
             totalTokens: totalTokens,
+            reportedTotalTokens: reportedTotalTokens,
             mode: mode,
             sourceID: sourceID,
             sourcePath: TokenReportPrivacy.redactedPath(sourcePath),
@@ -285,7 +310,9 @@ public struct TokenUsageSample: Codable, Equatable, Sendable {
         case inputTokens
         case cachedInputTokens
         case outputTokens
+        case reasoningTokens
         case totalTokens
+        case reportedTotalTokens
         case mode
         case sourceID
         case sourcePath
@@ -300,7 +327,9 @@ public struct TokenUsageSample: Codable, Equatable, Sendable {
         inputTokens = try container.decode(Int.self, forKey: .inputTokens)
         cachedInputTokens = try container.decodeIfPresent(Int.self, forKey: .cachedInputTokens) ?? 0
         outputTokens = try container.decode(Int.self, forKey: .outputTokens)
+        reasoningTokens = try container.decodeIfPresent(Int.self, forKey: .reasoningTokens) ?? 0
         totalTokens = try container.decode(Int.self, forKey: .totalTokens)
+        reportedTotalTokens = try container.decodeIfPresent(Int.self, forKey: .reportedTotalTokens)
         mode = try container.decode(UsageMode.self, forKey: .mode)
         sourceID = try container.decode(String.self, forKey: .sourceID)
         sourcePath = try container.decode(String.self, forKey: .sourcePath)
@@ -372,6 +401,12 @@ public struct TokenUsageStatistics: Codable, Equatable, Sendable {
     public var requestCount: Int
     public var dailyCostUSD: Double?
     public var monthlyCostUSD: Double?
+    public var estimatedLocalSessionCostUSD: Double? = nil
+    public var estimatedLocalDailyCostUSD: Double? = nil
+    public var estimatedLocalWeeklyCostUSD: Double? = nil
+    public var estimatedLocalMonthlyCostUSD: Double? = nil
+    public var estimatedLocalTotalCostUSD: Double? = nil
+    public var estimatedLocalPricingProfileName: String? = nil
     public var budgetUSD: Double?
     public var budgetUsedRatio: Double?
     public var dataSource: String?

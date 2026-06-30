@@ -14,6 +14,8 @@ public struct TokenUsageUIDisplay: Equatable, Sendable {
     public var primaryAverageRequestText: String
     public var last10PromptAverageText: String
     public var monthlyCostText: String
+    public var primaryCostTitle: String
+    public var primaryCostText: String
     public var tooltipText: String
     public var overviewLines: [String]
     public var usageLogLines: [String]
@@ -27,7 +29,7 @@ public struct TokenUsageUIDisplay: Equatable, Sendable {
     ) {
         let primaryUsage = statistics.primaryDisplayUsage
         let primaryStatus = statistics.primaryDisplayStatus
-        self.headerTitle = "TODAY"
+        self.headerTitle = "CODEX TODAY"
         self.primaryTokenText = Self.compact(primaryUsage.totalTokens)
         self.primaryRequestText = "\(primaryUsage.requests)"
         self.primaryStatus = primaryStatus
@@ -35,11 +37,24 @@ public struct TokenUsageUIDisplay: Equatable, Sendable {
         self.primaryAverageRequestText = Self.compact(Int(Self.averageTokensPerRequest(primaryUsage).rounded()))
         self.last10PromptAverageText = Self.compact(Int(statistics.last10PromptsAverage))
         self.monthlyCostText = Self.formatUSD(statistics.monthlyCostUSD)
+        if let estimatedLocalDailyCost = statistics.estimatedLocalDailyCostUSD {
+            self.primaryCostTitle = "EST. CODEX"
+            self.primaryCostText = Self.formatUSD(estimatedLocalDailyCost)
+        } else {
+            self.primaryCostTitle = "API COST"
+            self.primaryCostText = Self.formatUSD(statistics.monthlyCostUSD)
+        }
         self.tooltipText = "Today: \(Self.compact(primaryUsage.totalTokens)) | Avg/req: \(primaryAverageRequestText) | \(primaryStatus.rawValue)"
         self.overviewLines = [
             "Status: \(primaryStatus.rawValue) · \(statistics.mode.rawValue)",
             "Today tokens: \(primaryUsage.totalTokens) · \(statistics.totalTokens) total",
             "Today requests: \(primaryUsage.requests)",
+            "Estimated local daily cost: \(Self.formatUSD(statistics.estimatedLocalDailyCostUSD))",
+            "Estimated local monthly cost: \(Self.formatUSD(statistics.estimatedLocalMonthlyCostUSD))",
+            "Pricing profile: \(statistics.estimatedLocalPricingProfileName ?? "n/a")",
+            "Actual API daily cost: \(Self.formatUSD(statistics.dailyCostUSD))",
+            "Actual API monthly cost: \(Self.formatUSD(statistics.monthlyCostUSD))",
+            "OpenAI Costs API may not include Codex desktop usage.",
             "Today avg/request: \(Self.integer(Self.averageTokensPerRequest(primaryUsage)))",
             "Input tokens today: \(primaryUsage.inputTokens)",
             "Output tokens today: \(primaryUsage.outputTokens)",

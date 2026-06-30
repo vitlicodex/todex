@@ -1,8 +1,47 @@
 import Foundation
 
+public enum OpenAIRedirectPolicy {
+    public static func allowsRedirect(from originalURL: URL?, to redirectedURL: URL?) -> Bool {
+        guard let originalURL,
+              let redirectedURL,
+              originalURL.scheme?.lowercased() == "https",
+              redirectedURL.scheme?.lowercased() == "https",
+              originalURL.host?.lowercased() == redirectedURL.host?.lowercased(),
+              normalizedPort(originalURL) == normalizedPort(redirectedURL) else {
+            return false
+        }
+        return true
+    }
+
+    private static func normalizedPort(_ url: URL) -> Int {
+        url.port ?? (url.scheme?.lowercased() == "https" ? 443 : -1)
+    }
+}
+
+private final class OpenAIUsageRedirectDelegate: NSObject, URLSessionTaskDelegate {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard OpenAIRedirectPolicy.allowsRedirect(
+            from: task.originalRequest?.url,
+            to: request.url
+        ) else {
+            completionHandler(nil)
+            return
+        }
+
+        completionHandler(request)
+    }
+}
+
 public final class OpenAIUsageClient: @unchecked Sendable {
     private let session: URLSession
     private let baseURL: URL
+    private let maxPaginationPages = 20
 
     public init(
         session: URLSession = OpenAIUsageClient.defaultSession,
@@ -12,6 +51,8 @@ public final class OpenAIUsageClient: @unchecked Sendable {
         self.baseURL = baseURL
     }
 
+    private static let redirectDelegate = OpenAIUsageRedirectDelegate()
+
     public static let defaultSession: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -19,7 +60,11 @@ public final class OpenAIUsageClient: @unchecked Sendable {
         configuration.timeoutIntervalForResource = 30
         configuration.httpMaximumConnectionsPerHost = 2
         configuration.waitsForConnectivity = false
-        return URLSession(configuration: configuration)
+        return URLSession(
+            configuration: configuration,
+            delegate: redirectDelegate,
+            delegateQueue: nil
+        )
     }()
 
     public func fetchStatistics(
@@ -37,6 +82,7 @@ public final class OpenAIUsageClient: @unchecked Sendable {
             switch await usageRequest {
             case .success(let statistics):
                 usage = statistics
+                issues.append(contentsOf: statistics.issues)
             case .failure(let issue):
                 issues.append(issue)
                 usage = emptyAPIStatistics(issues: issues)
@@ -45,12 +91,14 @@ public final class OpenAIUsageClient: @unchecked Sendable {
             switch await costsRequest {
             case .success(let costs):
                 apply(costs: costs, to: &usage, settings: settings)
+                issues.append(contentsOf: costs.issues)
             case .failure(let issue):
                 issues.append(issue)
             }
         } else {
             do {
                 usage = try await fetchUsage(apiKey: apiKey, settings: settings, now: now)
+                issues.append(contentsOf: usage.issues)
             } catch let error as OpenAIUsageError {
                 issues.append(error.issue)
                 return emptyAPIStatistics(issues: issues)
@@ -107,15 +155,23 @@ public final class OpenAIUsageClient: @unchecked Sendable {
     }
 
     private func fetchUsage(apiKey: String, settings: MonitorSettings, now: Date) async throws -> TokenUsageStatistics {
-        let payload = try await requestJSON(
+        let paginated = try await requestPaginatedJSON(
             path: "/organization/usage/completions",
             queryItems: usageQueryItems(settings: settings, now: now),
             apiKey: apiKey
         )
 
-        guard let page = payload as? [String: Any],
-              let buckets = page["data"] as? [[String: Any]] else {
-            throw OpenAIUsageError(.apiResponseInvalid("Missing usage data buckets."))
+        var issues = paginated.issues
+        var buckets: [[String: Any]] = []
+        for page in paginated.pages {
+            guard let pageBuckets = page["data"] as? [[String: Any]] else {
+                if buckets.isEmpty {
+                    throw OpenAIUsageError(.apiResponseInvalid("Missing usage data buckets."))
+                }
+                issues.append(.apiResponseInvalid("A paginated usage page was missing data buckets."))
+                continue
+            }
+            buckets.append(contentsOf: pageBuckets)
         }
 
         let calendar = Self.utcCalendar
@@ -226,7 +282,7 @@ public final class OpenAIUsageClient: @unchecked Sendable {
             status: TokenUsageStatus.classify(sessionTokens: dailyTokens, last10Average: dailyAverage),
             lastUpdatedAt: latestDate,
             activeSourcePath: "https://api.openai.com/v1/organization/usage/completions",
-            issues: [],
+            issues: issues,
             cachedInputTokens: dailyCached,
             requestCount: dailyRequests,
             dailyCostUSD: nil,
@@ -265,15 +321,23 @@ public final class OpenAIUsageClient: @unchecked Sendable {
     }
 
     private func fetchCosts(apiKey: String, settings: MonitorSettings, now: Date) async throws -> CostSnapshot {
-        let payload = try await requestJSON(
+        let paginated = try await requestPaginatedJSON(
             path: "/organization/costs",
             queryItems: costsQueryItems(settings: settings, now: now),
             apiKey: apiKey
         )
 
-        guard let page = payload as? [String: Any],
-              let buckets = page["data"] as? [[String: Any]] else {
-            throw OpenAIUsageError(.apiResponseInvalid("Missing costs data buckets."))
+        var issues = paginated.issues
+        var buckets: [[String: Any]] = []
+        for page in paginated.pages {
+            guard let pageBuckets = page["data"] as? [[String: Any]] else {
+                if buckets.isEmpty {
+                    throw OpenAIUsageError(.apiResponseInvalid("Missing costs data buckets."))
+                }
+                issues.append(.apiResponseInvalid("A paginated costs page was missing data buckets."))
+                continue
+            }
+            buckets.append(contentsOf: pageBuckets)
         }
 
         let calendar = Self.utcCalendar
@@ -309,8 +373,128 @@ public final class OpenAIUsageClient: @unchecked Sendable {
             dailyCostUSD: dailyCost,
             monthlyCostUSD: monthlyCost,
             projectCosts: projectCosts,
-            apiKeyCosts: apiKeyCosts
+            apiKeyCosts: apiKeyCosts,
+            issues: issues
         )
+    }
+
+    private func requestPaginatedJSON(
+        path: String,
+        queryItems: [URLQueryItem],
+        apiKey: String
+    ) async throws -> PaginatedPayload {
+        var pages: [[String: Any]] = []
+        var issues: [TokenMonitorIssue] = []
+        var nextQueryItems = queryItems
+        var seenCursors = Set<String>()
+
+        for pageIndex in 0..<maxPaginationPages {
+            let payload: Any
+            do {
+                payload = try await requestJSON(path: path, queryItems: nextQueryItems, apiKey: apiKey)
+            } catch {
+                if pages.isEmpty {
+                    throw error
+                }
+                issues.append(issue(from: error))
+                break
+            }
+
+            guard let page = payload as? [String: Any] else {
+                if pages.isEmpty {
+                    throw OpenAIUsageError(.apiResponseInvalid("Paginated API response was not a JSON object."))
+                }
+                issues.append(.apiResponseInvalid("A paginated API response was not a JSON object."))
+                break
+            }
+
+            pages.append(page)
+
+            guard let cursor = paginationCursor(from: page) else {
+                if hasMorePages(page) == true {
+                    issues.append(.apiResponseInvalid("Pagination indicated more pages but no valid cursor was provided."))
+                }
+                break
+            }
+
+            let cursorKey = "\(cursor.queryName)=\(cursor.value)"
+            guard seenCursors.insert(cursorKey).inserted else {
+                issues.append(.apiResponseInvalid("Duplicate pagination cursor was ignored."))
+                break
+            }
+
+            if pageIndex == maxPaginationPages - 1 {
+                issues.append(.apiResponseInvalid("Pagination page limit exceeded after \(maxPaginationPages) pages."))
+                break
+            }
+
+            nextQueryItems = queryItemsForNextPage(base: queryItems, cursor: cursor)
+        }
+
+        guard !pages.isEmpty else {
+            throw OpenAIUsageError(.apiResponseInvalid("Paginated API response did not contain any pages."))
+        }
+
+        return PaginatedPayload(pages: pages, issues: issues)
+    }
+
+    private func paginationCursor(from page: [String: Any]) -> PaginationCursor? {
+        if let value = paginationString(page["next_page"] ?? page["nextPage"]) {
+            return PaginationCursor(queryName: "page", value: value)
+        }
+        if let value = paginationString(page["next_cursor"] ?? page["nextCursor"]) {
+            return PaginationCursor(queryName: "cursor", value: value)
+        }
+        if let value = paginationString(page["after"]) {
+            return PaginationCursor(queryName: "after", value: value)
+        }
+        return nil
+    }
+
+    private func paginationString(_ value: Any?) -> String? {
+        if let string = value as? String {
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if let int = value as? Int {
+            return "\(int)"
+        }
+        if let number = value as? NSNumber {
+            return number.stringValue
+        }
+        return nil
+    }
+
+    private func hasMorePages(_ page: [String: Any]) -> Bool? {
+        boolValue(page["has_more"] ?? page["hasMore"] ?? page["more"])
+    }
+
+    private func boolValue(_ value: Any?) -> Bool? {
+        if let bool = value as? Bool {
+            return bool
+        }
+        if let number = value as? NSNumber {
+            return number.boolValue
+        }
+        if let string = value as? String {
+            switch string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "true", "yes", "1":
+                return true
+            case "false", "no", "0":
+                return false
+            default:
+                return nil
+            }
+        }
+        return nil
+    }
+
+    private func queryItemsForNextPage(base: [URLQueryItem], cursor: PaginationCursor) -> [URLQueryItem] {
+        var output = base.filter { item in
+            !["page", "cursor", "after"].contains(item.name)
+        }
+        output.append(URLQueryItem(name: cursor.queryName, value: cursor.value))
+        return output
     }
 
     private func requestJSON(path: String, queryItems: [URLQueryItem], apiKey: String) async throws -> Any {
@@ -607,6 +791,17 @@ private struct CostSnapshot {
     var monthlyCostUSD: Double?
     var projectCosts: [String: Double]
     var apiKeyCosts: [String: Double]
+    var issues: [TokenMonitorIssue] = []
+}
+
+private struct PaginatedPayload {
+    var pages: [[String: Any]]
+    var issues: [TokenMonitorIssue]
+}
+
+private struct PaginationCursor: Hashable {
+    var queryName: String
+    var value: String
 }
 
 private struct OpenAIUsageError: Error {

@@ -20,7 +20,10 @@ This plan follows the defensive audit in `PORT_AND_API_SECURITY_AUDIT.md`. It se
 | Redact paths and API keys in debug logs | Done | `AppDebugLogger.redact` | Covered by build; add dedicated log-redaction tests in P1 |
 | Reject hardlinked private files | Done | `PrivateFileIO.validateOwnerAndMode`, `APIKeyStore.validatePrivateFile` | `Private file hardlink refusal` |
 | Refuse non-HTTPS OpenAI API URLs before Authorization | Done | `OpenAIUsageClient.requestJSON` | Covered by build; add mock URLProtocol tests in P1 |
+| Classify OpenAI API status failures | Done | `OpenAIUsageClient.requestJSON` maps 429, 404, 5xx, and timeout to typed issues | `OpenAI API HTTP error classification` |
+| Add bounded OpenAI Usage/Costs pagination | Done | `OpenAIUsageClient.requestPaginatedJSON` | `OpenAI Usage API pagination`; `OpenAI Costs API pagination`; `OpenAI pagination max page guard` |
 | Harden LaunchAgent plist writes and bundle validation | Done | `LaunchAtLoginController.install`, `validatedAppExecutablePath` | Covered by build; add pure validator tests in P1 |
+| Lock down Help WebView navigation | Done | `HelpWindowController` opens remote HTTP(S) links externally and blocks remote images | Build; manual audit |
 | Fix CI bundle verification path | Done | `.github/workflows/ci.yml` verifies `.build/TODEX.app` | CI |
 
 ## P1 Release-Blocking Hardening
@@ -29,33 +32,30 @@ This plan follows the defensive audit in `PORT_AND_API_SECURITY_AUDIT.md`. It se
 
 Problem:
 
-- `URLSession` default redirect handling is not explicitly constrained.
-- 429, 5xx, timeout, and endpoint-unavailable errors are generic.
-- Usage/Costs pagination is not implemented.
+- `URLSession` redirect handling is now constrained to HTTPS same-host/same-port redirects.
+- 429, 5xx, timeout, and endpoint-unavailable errors have typed issues.
+- Usage/Costs pagination is implemented with max-page, duplicate-cursor, malformed-cursor, and partial-failure guards.
 
 Plan:
 
-- Introduce a small `OpenAIUsageTransport` abstraction so tests can inject responses without live API calls.
-- Add redirect delegate logic:
+- Optionally introduce a small `OpenAIUsageTransport` abstraction if URLProtocol fixtures become hard to maintain.
+- Keep redirect delegate logic in place:
   - allow only HTTPS;
-  - allow only same host as configured base URL;
-  - never forward Authorization to a different host.
-- Add typed issues:
-  - `apiRateLimited(retryAfter:)`;
-  - `apiServerError(status:)`;
-  - `apiEndpointUnavailable`;
-  - `apiTimeout`;
-  - `apiPermissionScopeMissing`.
-- Implement pagination for Usage and Costs responses if `next_page`, `has_more`, or cursor fields are present.
+  - allow only same host and port as configured base URL;
+  - never follow cross-host redirects.
+- Add a specific `apiPermissionScopeMissing` issue if OpenAI exposes a stable machine-readable scope signal.
+- Keep pagination fixtures aligned with any official response-shape changes.
 
 Tests:
 
 - mock non-HTTPS URL refuses before request creation;
 - mock cross-host redirect is blocked;
+- mock downgrade and port-changing redirects are blocked;
 - mock same-host HTTPS redirect preserves behavior;
 - 429 parses `Retry-After`;
 - 500 maps to server error;
-- paginated Usage/Costs buckets merge correctly.
+- paginated Usage/Costs buckets merge correctly;
+- partial page failure keeps available data visible with warning status.
 
 ### 2. Full Privacy Mode
 
@@ -179,27 +179,20 @@ Tests:
 
 ### 6. Estimated Local Codex Cost
 
-Problem:
+Current status:
 
 - Local Codex logs can show real local token counts, but OpenAI Costs API may not expose Codex desktop cost. Showing `n/a` is honest but incomplete for planning.
+- `TokenPricingProfile` stores input, cached input, output, reasoning, and multiplier assumptions.
+- `CostEstimator` computes local estimated cost from local samples and never labels it as actual.
+- `TokenUsageStatistics` stores estimated local cost in fields separate from actual API cost fields.
+- Menu and reports label:
+  - `Actual OpenAI API cost`: OpenAI Costs API only;
+  - `Estimated local Codex cost`: local logs x pricing profile.
 
-Plan:
+Remaining plan:
 
-- Add `TokenPricingProfile`:
-  - name;
-  - input per 1M;
-  - cached input per 1M;
-  - output per 1M;
-  - reasoning per 1M;
-  - multiplier.
-- Add `CostEstimator`:
-  - computes local estimated cost from local samples;
-  - never labels estimated cost as actual;
-  - stores selected pricing profile locally.
-- UI:
-  - `Actual API cost`: OpenAI Costs API only;
-  - `Estimated local Codex cost`: local logs x pricing profile;
-  - source label next to both.
+- Keep labels and report fields source-specific as new UI surfaces are added.
+- Add stronger migration tests if pricing profile schema changes.
 
 Tests:
 

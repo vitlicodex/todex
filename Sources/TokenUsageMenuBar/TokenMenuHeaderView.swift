@@ -163,8 +163,8 @@ final class TokenMenuHeaderView: NSView {
             rect: NSRect(x: rect.minX + 16 + width + gap, y: y, width: width, height: 39)
         )
         drawMetric(
-            title: "COST",
-            value: display.monthlyCostText,
+            title: display.primaryCostTitle,
+            value: display.primaryCostText,
             rect: NSRect(x: rect.minX + 16 + (width + gap) * 2, y: y, width: width, height: 39)
         )
     }

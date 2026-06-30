@@ -107,7 +107,7 @@ Steps:
    - Usage response parser;
    - Costs response parser;
    - statistics builder.
-3. Add redirect policy at transport layer.
+3. Keep the current redirect policy at the transport layer and move it behind the extracted transport abstraction.
 4. Add pagination support if response includes cursor/next page.
 5. Add fixtures for status classes and partial failures.
 
