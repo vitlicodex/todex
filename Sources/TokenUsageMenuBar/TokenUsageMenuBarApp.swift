@@ -17,6 +17,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppDebugLogger.log("applicationWillTerminate")
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        controller?.showControlWindow()
+        return true
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
@@ -1095,7 +1100,7 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         }
     }
 
-    @objc private func showControlWindow() {
+    @objc func showControlWindow() {
         showStartupWindow()
     }
 
@@ -1108,6 +1113,10 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         }
         NSApp.activate(ignoringOtherApps: true)
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 6), in: sender)
+    }
+
+    @objc private func hideControlWindow() {
+        startupWindow?.orderOut(nil)
     }
 
     @objc private func toggleLaunchAtLogin() {
@@ -1578,14 +1587,12 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
 
     private func showStartupWindow() {
         if let window = startupWindow {
-            window.center()
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
+            presentControlWindow(window)
             return
         }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 392, height: 160),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 166),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -1593,51 +1600,62 @@ final class TokenStatusController: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.title = "TODEX"
         window.titleVisibility = .hidden
-        window.center()
+        window.collectionBehavior = [.moveToActiveSpace]
 
-        let content = NSView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 392, height: 160))
+        let content = NSView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 520, height: 166))
         content.autoresizingMask = [.width, .height]
 
-        let iconView = NSImageView(frame: NSRect(x: 22, y: 88, width: 42, height: 42))
+        let iconView = NSImageView(frame: NSRect(x: 22, y: 94, width: 42, height: 42))
         iconView.image = NSApp.applicationIconImage
         iconView.imageScaling = .scaleProportionallyUpOrDown
         content.addSubview(iconView)
 
         let title = NSTextField(labelWithString: "TODEX is running")
         title.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
-        title.frame = NSRect(x: 78, y: 112, width: 292, height: 22)
+        title.frame = NSRect(x: 78, y: 118, width: 420, height: 22)
         content.addSubview(title)
 
-        let body = NSTextField(labelWithString: "Use the TODEX menu bar item for status and controls. Closing this window keeps monitoring active.")
+        let body = NSTextField(labelWithString: "Use the TODEX menu bar item for status and controls. If macOS hides it, use Open Menu here. Closing or hiding this window keeps monitoring active.")
         body.font = NSFont.systemFont(ofSize: 12)
         body.textColor = .secondaryLabelColor
         body.lineBreakMode = .byWordWrapping
         body.maximumNumberOfLines = 2
-        body.frame = NSRect(x: 78, y: 72, width: 292, height: 36)
+        body.frame = NSRect(x: 78, y: 76, width: 420, height: 40)
         content.addSubview(body)
 
         let openMenuButton = NSButton(title: "Open Menu", target: self, action: #selector(openMenuFromControlWindow(_:)))
         openMenuButton.keyEquivalent = "\r"
-        openMenuButton.frame = NSRect(x: 22, y: 24, width: 102, height: 30)
+        openMenuButton.frame = NSRect(x: 22, y: 24, width: 108, height: 30)
         content.addSubview(openMenuButton)
 
         let keyButton = NSButton(title: "Set API Key", target: self, action: #selector(setAPIKey))
-        keyButton.frame = NSRect(x: 132, y: 24, width: 100, height: 30)
+        keyButton.frame = NSRect(x: 140, y: 24, width: 108, height: 30)
         content.addSubview(keyButton)
 
         let helpButton = NSButton(title: "Help", target: self, action: #selector(openHelp))
-        helpButton.frame = NSRect(x: 240, y: 24, width: 62, height: 30)
+        helpButton.frame = NSRect(x: 258, y: 24, width: 70, height: 30)
         content.addSubview(helpButton)
 
+        let hideButton = NSButton(title: "Hide", target: self, action: #selector(hideControlWindow))
+        hideButton.frame = NSRect(x: 338, y: 24, width: 70, height: 30)
+        content.addSubview(hideButton)
+
         let quitButton = NSButton(title: "Quit", target: self, action: #selector(quit))
-        quitButton.frame = NSRect(x: 310, y: 24, width: 60, height: 30)
+        quitButton.frame = NSRect(x: 418, y: 24, width: 80, height: 30)
         content.addSubview(quitButton)
 
         window.contentView = content
         startupWindow = window
+        presentControlWindow(window)
+        AppDebugLogger.log("startup window shown")
+    }
+
+    private func presentControlWindow(_ window: NSWindow) {
+        window.center()
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
-        AppDebugLogger.log("startup window shown")
+        window.orderFrontRegardless()
+        AppDebugLogger.log("control window shown")
     }
 
     private func showAPIKeyWindow() {
